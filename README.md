@@ -1,51 +1,66 @@
 # NetRelay MQTT Server
 
-NetRelay cihazları için hazırlanmış hafif bir MQTT broker, web yönetim paneli ve test istemcisidir. Node.js üzerinde çalışır; MQTT bağlantılarını kullanıcı adı/parola ile doğrular, çevrimiçi cihazları izler, cihaz olaylarını JSON olarak işler ve web panelinden röle komutu gönderebilir.
+NetRelay cihazları için hazırlanmış Node.js tabanlı bir MQTT broker, web yönetim paneli ve test istemcisidir. Bağlanan cihazları anlık gösterir, cihaz olaylarını işler ve web panelinden röle açma/kapatma komutları gönderir.
 
 ## Özellikler
 
-- Aedes tabanlı MQTT broker
-- `users.json` üzerinden kullanıcı doğrulama
-- Bağlı NetRelay cihazlarını canlı gösteren web paneli
-- WebSocket ile anlık bağlantı, durum ve log güncellemeleri
-- Web panelinden bir veya birden fazla röleyi açma/kapatma
-- Input, röle ve cihaz durum JSON paketlerini ayrıştırma
-- Ayrı bir MQTT test istemcisi
+- Kullanıcı adı ve parola doğrulamalı MQTT broker
+- Bağlı cihazları canlı gösteren web paneli
+- WebSocket ile anlık cihaz, durum ve log güncellemeleri
+- Panelden 1–4 numaralı röleleri tek tek veya birlikte kontrol etme
+- NetRelay input, röle ve cihaz durum mesajlarını JSON olarak işleme
+- MQTT bağlantısını sınamak için test istemcisi
+- Tek komutla sürüm artırma ve GitHub'a gönderme
 
 ## Gereksinimler
 
-- Node.js 18 veya daha yeni bir sürüm
-- Aynı ağdaki cihazlar için açık TCP portları:
-  - `1883`: MQTT
-  - `3000`: Web paneli
+- Windows 10/11 veya Node.js çalıştırabilen Linux/macOS
+- [Node.js](https://nodejs.org/) 18 veya daha yeni sürüm
+- Git (projeyi GitHub'dan indirecek veya GitHub'a gönderecekseniz)
+- Yerel ağ erişimi için açık TCP portları:
+  - `1883`: MQTT bağlantıları
+  - `3000`: Web yönetim paneli
+
+Kurulumları doğrulamak için terminalde şunları çalıştırabilirsiniz:
+
+```powershell
+node --version
+npm --version
+git --version
+```
 
 ## Kurulum
 
-```bash
+### GitHub'dan kurulum
+
+PowerShell veya Komut İstemi'ni açın:
+
+```powershell
 git clone https://github.com/mlteknoloji/mqttserver.git
 cd mqttserver
 npm install
 ```
 
-Örnek yapılandırmaları kopyalayın:
+### ZIP/RAR dosyasından kurulum
 
-Windows PowerShell:
+Arşivi bir klasöre çıkartın, terminali bu klasörde açın ve çalıştırın:
+
+```powershell
+npm install
+```
+
+`npm install`, programın ihtiyaç duyduğu paketleri `node_modules` klasörüne yükler. İlk kurulumdan sonra, bağımlılıklar değişmediği sürece tekrar çalıştırmanız gerekmez.
+
+## Yapılandırma
+
+Programın çalışması için proje ana klasöründe `.env` ve `users.json` dosyaları bulunmalıdır. Dosyalar yoksa örneklerden oluşturun:
 
 ```powershell
 Copy-Item .env.example .env
 Copy-Item users.example.json users.json
 ```
 
-Linux/macOS:
-
-```bash
-cp .env.example .env
-cp users.example.json users.json
-```
-
-## Yapılandırma
-
-### `.env`
+### `.env` ayarları
 
 ```env
 HOST=0.0.0.0
@@ -57,61 +72,100 @@ MQTT_USERNAME=admin
 MQTT_PASSWORD=guclu-bir-parola
 ```
 
-- `HOST`: Sunucunun dinleyeceği ağ adresidir. `0.0.0.0`, tüm ağ arayüzlerinden erişime izin verir.
-- `MQTT_PORT`: MQTT broker portudur.
-- `WEB_PORT`: Yönetim panelinin HTTP portudur.
-- `MQTT_HOST`: Yalnızca `npm run client` test istemcisinin bağlanacağı broker adresidir.
-- `MQTT_USERNAME` ve `MQTT_PASSWORD`: Yalnızca test istemcisi tarafından kullanılır.
+| Ayar | Açıklama |
+|---|---|
+| `HOST` | Sunucunun dinleyeceği adres. `0.0.0.0`, tüm ağ bağlantılarını dinler. |
+| `MQTT_PORT` | NetRelay cihazlarının bağlanacağı MQTT portu. Varsayılan `1883`. |
+| `WEB_PORT` | Web panelinin portu. Varsayılan `3000`. |
+| `MQTT_HOST` | Yalnızca `npm run client` test istemcisinin bağlanacağı sunucu IP'si. |
+| `MQTT_USERNAME` | Test istemcisinin kullanıcı adı. `users.json` içinde bulunmalıdır. |
+| `MQTT_PASSWORD` | Test istemcisinin parolası. `users.json` ile aynı olmalıdır. |
 
-Broker kullanıcıları `.env` dosyasından değil, `users.json` dosyasından okunur.
+Sunucu bilgisayarın IP adresini Windows'ta `ipconfig` komutuyla öğrenebilirsiniz. Örneğin sunucu IP adresi `192.168.1.100` ise `MQTT_HOST=192.168.1.100` kullanın.
 
-### `users.json`
+### `users.json` ayarları
+
+Broker'a bağlanmasına izin verilen kullanıcılar burada tanımlanır:
 
 ```json
 {
   "users": [
     {
-      "username": "biga_sube",
+      "username": "admin",
       "password": "guclu-bir-parola"
+    },
+    {
+      "username": "cihaz1",
+      "password": "farkli-bir-parola"
     }
   ]
 }
 ```
 
-Her kullanıcı adı benzersiz olmalıdır. Dosyada değişiklik yaptıktan sonra sunucuyu yeniden başlatın. `.env` ve `users.json` Git tarafından dışlanmıştır; gerçek parolaları repoya eklemeyin.
+- Her kullanıcı adı benzersiz olmalıdır.
+- Kullanıcı adı veya parola değiştirildiğinde sunucuyu kapatıp yeniden başlatın.
+- NetRelay cihazına girdiğiniz bilgiler burada yazan bilgilerle tamamen aynı olmalıdır.
 
-## Çalıştırma
+> **Güvenlik uyarısı:** Bu projede `.env` ve `users.json` GitHub'a gönderilebilecek şekilde ayarlanmıştır. Depo herkese açıksa parolalar da görünür. Gerçek sistemlerde özel (private) depo kullanın ve parolaları düzenli olarak değiştirin.
 
-```bash
+## Programı çalıştırma
+
+Proje klasöründe şu komutu çalıştırın:
+
+```powershell
 npm start
 ```
 
-Varsayılan adresler:
+Başarılı açılışta terminalde MQTT ve web paneli adresleri gösterilir. Terminal penceresini açık bırakın.
 
-- MQTT: `mqtt://SUNUCU_IP:1883`
-- Web paneli: `http://SUNUCU_IP:3000`
+Varsayılan erişim adresleri:
 
-Test istemcisini ayrı bir terminalde çalıştırmak için:
+- Aynı bilgisayardan panel: `http://localhost:3000`
+- Ağdaki başka bir bilgisayardan panel: `http://SUNUCU_IP:3000`
+- MQTT broker: `mqtt://SUNUCU_IP:1883`
 
-```bash
-npm run client
+Programı durdurmak için terminalde `Ctrl+C` tuşlarına basın.
+
+### Windows Güvenlik Duvarı
+
+Diğer cihazlar bağlanamıyorsa PowerShell'i **Yönetici olarak** açıp gerekli portlara izin verin:
+
+```powershell
+New-NetFirewallRule -DisplayName "NetRelay MQTT 1883" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+New-NetFirewallRule -DisplayName "NetRelay Web 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
 ```
 
-## NetRelay cihaz ayarları
+Yalnızca güvendiğiniz yerel ağlarda bu izinleri açın.
 
-Cihazın `/mqtt` sayfasında aşağıdaki değerleri girin:
+## NetRelay cihazını bağlama
 
-- MQTT Server: Sunucunun yerel IP adresi
-- MQTT Port: `1883`
-- MQTT Kullanıcı: `users.json` içindeki kullanıcı adı
-- MQTT Şifre: Aynı kullanıcıya ait parola
-- MQTT İstemci Modu: Açık
+NetRelay cihazının `/mqtt` ayar sayfasını açın ve şu değerleri girin:
 
-Client ID cihaz kimliğidir; örneğin `1012`. `REDDEDİLDİ` kaydı görülürse Client ID değil, kullanıcı adı veya parola eşleşmesi kontrol edilmelidir.
+| Cihaz ayarı | Girilecek değer |
+|---|---|
+| MQTT Server | Bu programın çalıştığı bilgisayarın IP adresi |
+| MQTT Port | `1883` veya `.env` içindeki `MQTT_PORT` |
+| MQTT Kullanıcı | `users.json` içindeki bir kullanıcı adı |
+| MQTT Şifre | Aynı kullanıcıya ait parola |
+| MQTT İstemci Modu | Açık |
+| Client ID | Her cihaz için benzersiz kimlik; örneğin `1012` |
 
-## Topic yapısı
+Ayarları kaydettikten sonra gerekirse cihazı yeniden başlatın. Bağlantı kurulduğunda cihaz web panelindeki çevrimiçi cihazlar bölümünde görünür.
 
-Her kullanıcı için iki temel topic kullanılır:
+## Web panelinin kullanımı
+
+1. Tarayıcıdan `http://SUNUCU_IP:3000` adresini açın.
+2. Çevrimiçi cihazlar listesinden kontrol edilecek cihazı seçin.
+3. Açmak veya kapatmak istediğiniz 1–4 numaralı röleleri seçin.
+4. Röle konumunu Açık (`1`) veya Kapalı (`0`) olarak belirleyin.
+5. Komutu gönderin.
+6. İşlem ve cihaz mesajlarını paneldeki log bölümünden izleyin.
+
+Panel, seçilen cihazın kullanıcı adına ait `command` topic'ine JSON komutu yollar. Cihaz bağlantısı kesilirse listeden otomatik kaldırılır.
+
+## MQTT topic yapısı
+
+Her kullanıcı için iki temel topic bulunur:
 
 ```text
 netrelay/<kullanici>/events
@@ -121,62 +175,104 @@ netrelay/<kullanici>/command
 - `events`: Cihazın input, röle ve periyodik durum mesajlarını yayınladığı topic.
 - `command`: Cihazın web panelinden gelen röle komutlarını dinlediği topic.
 
-Örnek komut:
+Örnek röle komutu:
 
 ```json
 {
   "type": "netrelay",
   "command": "set",
-  "targetUsername": "biga_sube",
+  "targetUsername": "cihaz1",
   "relays": [1, 2],
   "position": 1
 }
 ```
 
-## Olay JSON örneği
+`position: 1` röleyi açar, `position: 0` röleyi kapatır.
 
-```json
-{
-  "type": "netrelay_input_event",
-  "mqttUsername": "biga_sube",
-  "deviceId": "1012",
-  "mqttEventTopic": "netrelay/biga_sube/events",
-  "ipAddress": "192.168.1.50",
-  "hostname": "NetRelay",
-  "topic": "biga_sube",
-  "subtopic": "fromServer",
-  "input": 4,
-  "inputName": "inp4",
-  "io": 0,
-  "voltage": 12.0,
-  "deviceUptimeMs": 7748
-}
+## Test istemcisi
+
+Sunucu çalışırken ikinci bir terminal açıp proje klasöründe çalıştırın:
+
+```powershell
+npm run client
 ```
 
-Sunucu doğrulanmış kullanıcı adı ve Client ID bilgilerini MQTT bağlantısından alır. Cihazdan gelen input/röle olayları konsolda `[NETRELAY_JSON]` etiketiyle gösterilir.
+Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQTT_PASSWORD` bilgilerini kullanır. Bağlanır, `test/mesaj` topic'ine bir mesaj gönderir ve kendi `netrelay/<kullanici>/command` topic'ini dinler. Kapatmak için `Ctrl+C` kullanın.
+
+## GitHub'a yeni sürüm gönderme
+
+Windows'ta [githuba_gonder.bat](githuba_gonder.bat) dosyasını çift tıklayabilir veya terminalden çalıştırabilirsiniz.
+
+Hata düzeltmesi / küçük güncelleme (`1.0.0` → `1.0.1`):
+
+```bat
+githuba_gonder.bat
+```
+
+Yeni özellik sürümü (`1.0.1` → `1.1.0`):
+
+```bat
+githuba_gonder.bat minor "Yeni ozellikler"
+```
+
+Ana sürüm (`1.1.0` → `2.0.0`):
+
+```bat
+githuba_gonder.bat major "Yeni ana surum"
+```
+
+Betik sürümü günceller, bütün değişiklikleri commit eder, `v1.0.1` biçiminde Git etiketi oluşturur ve commit ile etiketi `origin` GitHub deposuna gönderir. GitHub kimlik doğrulaması istenirse hesabınızla giriş yapın.
+
+## Sorun giderme
+
+### `REDDEDİLDİ` mesajı
+
+- Cihazdaki kullanıcı adı ve parolayı `users.json` ile karşılaştırın.
+- Başında/sonunda boşluk olmadığını kontrol edin.
+- `users.json` değiştiyse sunucuyu yeniden başlatın.
+
+### MQTT bağlantısı kurulamıyor
+
+- Sunucu bilgisayarın IP adresinin doğru olduğunu kontrol edin.
+- Sunucunun `npm start` ile çalıştığını doğrulayın.
+- Cihaz ile sunucunun aynı ağa erişebildiğinden emin olun.
+- Güvenlik duvarında TCP `1883` portunu kontrol edin.
+- Aynı portu başka bir programın kullanmadığını doğrulayın.
+
+### Web paneli açılmıyor
+
+- `http://localhost:3000` adresini sunucu bilgisayarda deneyin.
+- Başka bilgisayardan erişiyorsanız `localhost` yerine sunucu IP'sini kullanın.
+- Güvenlik duvarında TCP `3000` portunu kontrol edin.
+
+### Cihaz bağlı ama panelde görünmüyor
+
+- MQTT istemci modunun açık olduğunu kontrol edin.
+- Her cihaz için benzersiz Client ID kullanın.
+- Terminalde bağlantı ve hata mesajlarını inceleyin.
+
+### `EADDRINUSE` hatası
+
+`1883` veya `3000` portu başka bir uygulama tarafından kullanılıyordur. Diğer uygulamayı kapatın veya `.env` içindeki portu değiştirip sunucuyu yeniden başlatın.
 
 ## Proje yapısı
 
 ```text
-server.js           MQTT broker, HTTP paneli ve WebSocket sunucusu
-client.js           MQTT bağlantı test istemcisi
-views/index.ejs     Web paneli
-public/             Panelin CSS ve istemci dosyaları
-users.example.json  Örnek broker kullanıcıları
-.env.example        Örnek port ve test istemcisi ayarları
-docs/               Ayrıntılı NetRelay kullanım kılavuzu
+server.js            MQTT broker, web paneli ve WebSocket sunucusu
+client.js            MQTT test istemcisi
+views/index.ejs      Web paneli görünümü
+public/              Panel CSS ve tarayıcı kodları
+.env                 Çalışma ve test istemcisi ayarları
+users.json           Broker kullanıcıları ve parolaları
+.env.example         Örnek ortam ayarları
+users.example.json   Örnek kullanıcılar
+githuba_gonder.bat   Sürüm oluşturma ve GitHub'a gönderme betiği
+docs/                Ayrıntılı NetRelay dokümanları ve görseller
 ```
 
 ## Güvenlik
 
-Bu proje varsayılan olarak şifresiz TCP MQTT ve HTTP kullanır. İnternet üzerinden doğrudan yayınlamayın. Uzak erişim gerekiyorsa güvenlik duvarı/VPN kullanın veya TLS ve HTTPS sağlayan bir reverse proxy arkasında çalıştırın. Güçlü ve her cihaz için farklı parolalar tercih edin.
-
-## Sorun giderme
-
-- `REDDEDİLDİ`: `/mqtt` kullanıcı adı/parolası `users.json` ile aynı değil veya sunucu kullanıcı dosyası değiştikten sonra yeniden başlatılmadı.
-- Bağlantı kurulamıyor: Sunucu IP adresini, `1883` portunu ve güvenlik duvarını kontrol edin.
-- Web paneli açılmıyor: `3000` portunun kullanılabilir ve erişilebilir olduğunu doğrulayın.
-- Cihaz bağlı fakat görünmüyor: MQTT istemci modunun açık ve cihaz Client ID değerinin benzersiz olduğundan emin olun.
+Bu program varsayılan olarak şifresiz TCP MQTT ve HTTP kullanır. `1883` ve `3000` portlarını doğrudan internete açmayın. Uzak erişim gerekiyorsa VPN, güvenlik duvarı ve tercihen TLS/HTTPS sağlayan bir ters proxy kullanın. Her cihaz için farklı ve güçlü parola belirleyin.
 
 ## Lisans
 
