@@ -1,5 +1,6 @@
 node_modules/
 firmware-files/
+logs/
 npm-debug.log*
 mqttserver.rar
 githuba_gonder.bat

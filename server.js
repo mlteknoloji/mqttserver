@@ -24,6 +24,7 @@ const MQTT_TLS_PORT = Number(process.env.MQTT_TLS_PORT) || 8883;
 const MQTT_TLS_REQUEST_CLIENT_CERT = process.env.MQTT_TLS_REQUEST_CLIENT_CERT === '1';
 const FIRMWARE_PUBLIC_BASE_URL = String(process.env.FIRMWARE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const USERS_FILE = path.join(__dirname, 'users.json');
+const STATUS_LOG_DIRECTORY = path.join(__dirname, 'logs');
 const MAX_LOGS = 200;
 const FAIL2BAN_MAX_ATTEMPTS = Number(process.env.FAIL2BAN_MAX_ATTEMPTS) || 5;
 const FAIL2BAN_FIND_TIME_MINUTES = Number(process.env.FAIL2BAN_FIND_TIME_MINUTES) || 10;
@@ -48,6 +49,23 @@ const onlineClients = new Map();
 const logs = [];
 let wss;
 let debugLoggingEnabled = false;
+
+fs.mkdirSync(STATUS_LOG_DIRECTORY, { recursive: true });
+
+function localDateKey(date = new Date()) {
+  const number = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())}`;
+}
+
+function writeDailyStatusLog(event, details = {}) {
+  const now = new Date();
+  const entry = JSON.stringify({ timestamp: now.toISOString(), localTime: now.toLocaleString('tr-TR'), event, ...details });
+  try {
+    fs.appendFileSync(path.join(STATUS_LOG_DIRECTORY, `device-status-${localDateKey(now)}.log`), `${entry}\n`, 'utf8');
+  } catch (error) {
+    console.error('[DURUM LOG HATASI]', error.message);
+  }
+}
 
 function getLocalIpAddresses() {
   return Object.values(os.networkInterfaces())
@@ -406,6 +424,13 @@ async function startServer() {
   app.get('/device-io', renderProtectedPage('device-io', 'dashboard'));
   app.get('/firmware-management', renderProtectedPage('firmware-management', 'firmware'));
   app.get('/mqtt-blacklist', renderProtectedPage('mqtt-blacklist', 'blacklist'));
+  app.get('/email-notifications', renderProtectedPage('email-notifications', 'email'));
+  app.get('/web-users', (request, response) => {
+    const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+    if (user.mustChangePassword) return response.redirect('/change-password');
+    if (user.role !== 'admin') return response.status(403).send('Bu sayfa yalnızca yöneticilere açıktır.');
+    response.render('web-users', { currentUser: user });
+  });
 
   wss = new WebSocketServer({ server: webServer, verifyClient(info, done) {
     const user = webAuth.fromRequest(info.req);
@@ -609,6 +634,10 @@ async function startServer() {
       'BAĞLANDI',
       `Kullanıcı: ${client.authenticatedUsername} | Client ID: ${client.id}`
     );
+    writeDailyStatusLog('DEVICE_UP', {
+      username: client.authenticatedUsername, clientId: client.id,
+      remoteIp: security.normalizeIp(client.conn?.remoteAddress)
+    });
     if (!usernameWasOnline) emailNotifications.notifyDevice(client.authenticatedUsername, true, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     }).then((sent) => { if (sent) addLog('E-POSTA', `${client.authenticatedUsername} aktif bildirimi gönderildi.`); })
@@ -621,6 +650,10 @@ async function startServer() {
       'KOPTU',
       `Kullanıcı: ${client.authenticatedUsername || 'bilinmiyor'} | Client ID: ${client.id}`
     );
+    writeDailyStatusLog('DEVICE_DOWN', {
+      username: client.authenticatedUsername || 'bilinmiyor', clientId: client.id,
+      remoteIp: security.normalizeIp(client.conn?.remoteAddress)
+    });
     const usernameStillOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
     if (!usernameStillOnline) emailNotifications.notifyDevice(client.authenticatedUsername, false, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
@@ -741,6 +774,7 @@ async function startServer() {
   }
 
   webServer.listen(WEB_PORT, HOST, () => {
+    writeDailyStatusLog('SERVER_UP', { webPort: WEB_PORT, mqttPort: MQTT_PORT, mqttTlsPort: MQTT_TLS_ENABLED ? MQTT_TLS_PORT : null });
     addLog('SİSTEM', `Web paneli tüm ağlarda çalışıyor: ${HOST}:${WEB_PORT}`);
     for (const ip of getLocalIpAddresses()) {
       addLog('SİSTEM', `Web paneli adresi: http://${ip}:${WEB_PORT}`);
@@ -754,6 +788,7 @@ const blacklistCleanupTimer = setInterval(() => {
 blacklistCleanupTimer.unref();
 
 function shutdown() {
+  writeDailyStatusLog('SERVER_DOWN', { reason: 'controlled_shutdown' });
   clearInterval(blacklistCleanupTimer);
   security.close();
   scheduledTasks.close();

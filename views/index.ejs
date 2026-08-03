@@ -17,10 +17,10 @@
     <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menüyü aç" aria-controls="sidebar" aria-expanded="false">☰</button>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
     <aside id="sidebar" class="sidebar">
-      <div class="sidebar-brand">
+      <a class="sidebar-brand" href="/" aria-label="MQTT Sunucu Paneli ana sayfa">
         <span>NETRELAY</span>
         <strong>MQTT Server</strong>
-      </div>
+      </a>
       <nav class="sidebar-nav" aria-label="Ana menü">
         <div class="nav-group" data-nav-group="monitoring"><button class="nav-group-title" type="button">İZLEME <span>⌄</span></button><div class="nav-group-items">
           <a class="active" href="#dashboard"><span>⌂</span> Genel Bakış</a><a href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a><a href="/device-io"><span>⌁</span> Cihaz I/O İzleme</a>
@@ -29,10 +29,10 @@
           <a href="#relay-command"><span>⇄</span> Röle Komutu</a><a href="/scheduled-tasks"><span>◷</span> Zamanlanmış Görevler</a><a href="/firmware-management"><span>⇧</span> Firmware Güncelleme</a>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="security"><button class="nav-group-title" type="button">BİLDİRİM VE GÜVENLİK <span>⌄</span></button><div class="nav-group-items">
-          <a href="#email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
+          <a href="/email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="system"><button class="nav-group-title" type="button">SİSTEM <span>⌄</span></button><div class="nav-group-items">
-          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="#web-users"><span>♙</span> Kullanıcı Yönetimi</a><% } %>
+          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/web-users"><span>♙</span> Kullanıcı Yönetimi</a><% } %>
         </div></div>
       </nav>
       <div class="sidebar-footer">
@@ -218,7 +218,7 @@
         <div class="table-wrap"><table><thead><tr><th>Görev</th><th>Hedef / Röle</th><th>Zaman</th><th>Geri al</th><th>Sonuç</th><th>Durum / İşlem</th></tr></thead><tbody id="schedule-list"></tbody></table><p id="empty-schedules" class="empty">Henüz zamanlanmış görev yok.</p></div>
       </section>
 
-      <section id="email-notifications" class="card panel page-section">
+      <section id="email-notifications" class="card panel page-section moved-page-section">
         <div class="panel-title"><h2>E-posta bildirimleri</h2><span>SMTP / cihaz aktif-pasif takibi</span></div>
         <form id="email-settings-form" class="email-settings-form">
           <label>SMTP sunucusu<input id="email-host" required placeholder="smtp.example.com"></label>
@@ -295,7 +295,7 @@
       </section>
 
       <% if (currentUser.role === 'admin') { %>
-      <section id="web-users" class="card panel page-section">
+      <section id="web-users" class="card panel page-section moved-page-section">
         <div class="panel-title"><h2>Panel kullanıcıları</h2><span>Hesap / parola / yetki yönetimi</span></div>
         <form id="web-user-form" class="web-user-form">
           <input id="web-user-id" type="hidden">

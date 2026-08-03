@@ -703,3 +703,7 @@ Yönetici, paneldeki **Kullanıcı Yönetimi** menüsünden yeni hesap oluştura
 **Firmware Güncelleme** menüsünde ESP32 `.bin` dosyası, sürüm ve donanım modeliyle kaydedilir. Panel dosyanın ESP32 imaj başlığını, OTA bölümüne uygun azami boyutunu ve SHA-256 özetini kontrol eder. Güncelleme başlatıldığında seçilen cihaza MQTT ile süreli HTTP/HTTPS indirme adresi gönderilir. Cihaz indirme ve flash yazma yüzdesini MQTT ile bildirir; dosya boyutu ve SHA-256 doğrulandıktan sonra yeni OTA bölümünden yeniden başlar.
 
 Mevcut `S-3.3.4` cihazlarında MQTT OTA komutu bulunmadığından OTA destekli ilk `S-3.3.5` firmware'i cihazın mevcut `/system` web güncelleme ekranından bir kez elle yüklenmelidir. Bundan sonraki sürümler merkez panelden gönderilebilir. Güncelleme sırasında cihazın enerjisi ve ağ bağlantısı kesilmemelidir.
+
+## Günlük cihaz durum logları
+
+MQTT cihazlarının bağlantı geçmişi `logs/device-status-YYYY-MM-DD.log` dosyalarına JSON Lines biçiminde yazılır. `DEVICE_UP` cihaz bağlantısını, `DEVICE_DOWN` bağlantı kopmasını, `SERVER_UP` uygulamanın açılışını ve `SERVER_DOWN` kontrollü kapanışı belirtir. Her satır UTC zamanını, Türkiye yerel saatini, MQTT kullanıcı adını, Client ID'yi ve uzak IP adresini içerir.

@@ -37,7 +37,8 @@ body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, 
 .container { width: min(1180px, calc(100% - 288px)); margin: 0 auto 0 264px; padding: 42px 0; }
 .page-section { scroll-margin-top: 22px; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 1000; display: flex; width: 240px; flex-direction: column; padding: 26px 14px 18px; background: #080d18f5; border-right: 1px solid #263247; box-shadow: 12px 0 40px #0003; backdrop-filter: blur(18px); }
-.sidebar-brand { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 24px; border-bottom: 1px solid #1e293b; }
+.sidebar-brand { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 24px; color: inherit; border-bottom: 1px solid #1e293b; text-decoration: none; }
+.sidebar-brand:hover strong { color: #60a5fa; }
 .sidebar-brand span { color: #60a5fa; font-size: 11px; font-weight: 900; letter-spacing: .18em; }
 .sidebar-brand strong { font-size: 19px; }
 .sidebar-nav { display: flex; flex-direction: column; gap: 6px; padding-top: 20px; }
@@ -98,7 +99,7 @@ th { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing:
 .hidden { display: none; }
 .permission-hidden { display: none !important; }
 .moved-page-section { display: none !important; }
-.standalone-shell { width: min(1180px,calc(100% - 40px)); margin: 0 auto; padding: 28px 0 50px; }
+.standalone-shell { width: min(1180px,calc(100% - 288px)); margin: 0 auto 0 264px; padding: 28px 0 50px; }
 .standalone-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .standalone-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .logs { max-height: 430px; overflow-y: auto; }
@@ -189,10 +190,12 @@ legend { padding: 0 7px; color: #94a3b8; font-size: 13px; font-weight: 700; }
 
 @media (min-width: 1468px) {
   .container { margin-left: calc(240px + (100vw - 240px - 1180px) / 2); }
+  .standalone-shell { margin-left: calc(240px + (100vw - 240px - 1180px) / 2); }
 }
 
 @media (max-width: 900px) {
   .container { width: min(100% - 20px, 1180px); margin: 0 auto; padding-top: 76px; }
+  .standalone-shell { width: min(100% - 20px,1180px); margin: 0 auto; padding-top: 76px; }
   .sidebar { transform: translateX(-105%); transition: transform .25s ease; }
   .menu-toggle { display: block; }
   body.menu-open { overflow: hidden; }
