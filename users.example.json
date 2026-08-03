@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "password": "buraya-guclu-bir-parola-yazin"
+    },
+    {
+      "username": "cihaz1",
+      "password": "buraya-farkli-bir-parola-yazin"
+    }
+  ]
+}

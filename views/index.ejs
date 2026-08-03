@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Sunucu Paneli</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <div>
+          <p class="eyebrow">CANLI YÖNETİM EKRANI</p>
+          <h1>MQTT Sunucu Paneli</h1>
+        </div>
+        <div id="socket-status" class="status offline">Bağlanıyor...</div>
+      </header>
+
+      <section class="card panel">
+        <div class="panel-title">
+          <h2>Çevrimiçi kullanıcılar</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Durum</th><th>Şube / kullanıcı</th><th>Cihaz</th><th>Uptime</th><th>Son görülme</th></tr>
+            </thead>
+            <tbody id="online-list">
+              <% onlineClients.forEach((client) => { %>
+                <tr>
+                  <td><span class="status-chip up"><span class="online-dot"></span><%= client.status || 'UP' %></span></td>
+                  <td><strong><%= client.hostname || client.username %></strong><small><%= client.username %></small></td>
+                  <td><%= client.clientId %><small><%= client.ipAddress || 'IP bekleniyor' %></small></td>
+                  <td><%= Math.floor((client.deviceUptimeMs || 0) / 1000) %> sn</td>
+                  <td><%= client.lastSeenAt || client.connectedAt %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+          <p id="empty-users" class="empty <%= onlineClients.length ? 'hidden' : '' %>">
+            Şu anda bağlı kullanıcı yok.
+          </p>
+        </div>
+      </section>
+
+      <section class="summary">
+        <div class="card count-card">
+          <span>Çevrimiçi bağlantı</span>
+          <strong id="online-count"><%= onlineClients.length %></strong>
+        </div>
+        <div class="card">
+          <span>MQTT adresi</span>
+          <strong><%= mqttAddresses.join(', ') || 'IP adresi bulunamadı' %></strong>
+        </div>
+      </section>
+
+      <section class="card panel relay-panel">
+        <div class="panel-title">
+          <h2>NetRelay komutu gönder</h2>
+          <span>JSON / MQTT</span>
+        </div>
+        <div class="relay-form">
+          <label>
+            Hedef çevrimiçi kullanıcı
+            <select id="target-client">
+              <% onlineClients.forEach((client) => { %>
+                <option value="<%= client.clientId %>" data-username="<%= client.username %>" data-topic="<%= client.commandTopic %>">
+                  <%= client.username %> — <%= client.clientId %>
+                </option>
+              <% }) %>
+            </select>
+          </label>
+
+          <label>
+            Kullanıcıya özel MQTT topic
+            <input id="command-topic" readonly>
+          </label>
+
+          <fieldset>
+            <legend>Tetiklenecek röleler</legend>
+            <div class="relay-options">
+              <% [1, 2, 3, 4].forEach((relay) => { %>
+                <label class="relay-option">
+                  <input class="relay-checkbox" type="checkbox" value="<%= relay %>">
+                  Röle <%= relay %>
+                </label>
+              <% }) %>
+              <button id="select-all" class="secondary-button" type="button">Tümünü seç</button>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Buton konumu</legend>
+            <div class="relay-options">
+              <label class="relay-option"><input type="radio" name="position" value="1" checked> 1 (Açık)</label>
+              <label class="relay-option"><input type="radio" name="position" value="0"> 0 (Kapalı)</label>
+            </div>
+          </fieldset>
+
+          <label>
+            Gönderilecek JSON mesajı
+            <textarea id="json-payload" rows="8" spellcheck="false"></textarea>
+          </label>
+
+          <div class="send-row">
+            <button id="send-command" class="send-button" type="button" <%= onlineClients.length ? '' : 'disabled' %>>JSON mesajını gönder</button>
+            <span id="send-result"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-title">
+          <h2>Sunucu logları</h2>
+          <span>Son 200 kayıt</span>
+        </div>
+        <div id="logs" class="logs">
+          <% logs.forEach((log) => { %>
+            <div class="log-row">
+              <time><%= log.timestamp %></time>
+              <span class="badge <%= log.type.toLocaleLowerCase('tr-TR') %>"><%= log.type %></span>
+              <p><%= log.message %></p>
+            </div>
+          <% }) %>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const statusElement = document.getElementById('socket-status');
+      const onlineCount = document.getElementById('online-count');
+      const onlineList = document.getElementById('online-list');
+      const emptyUsers = document.getElementById('empty-users');
+      const logsElement = document.getElementById('logs');
+      const targetClientElement = document.getElementById('target-client');
+      const topicElement = document.getElementById('command-topic');
+      const payloadElement = document.getElementById('json-payload');
+      const relayCheckboxes = [...document.querySelectorAll('.relay-checkbox')];
+      const sendResult = document.getElementById('send-result');
+      let socket;
+
+      function updatePayload() {
+        const selectedTarget = targetClientElement.selectedOptions[0];
+        const relays = relayCheckboxes
+          .filter((checkbox) => checkbox.checked)
+          .map((checkbox) => Number(checkbox.value));
+
+        payloadElement.value = JSON.stringify({
+          type: 'netrelay',
+          command: 'set',
+          targetUsername: selectedTarget?.dataset.username || '',
+          relays,
+          position: Number(document.querySelector('input[name="position"]:checked').value)
+        }, null, 2);
+        topicElement.value = selectedTarget?.dataset.topic || '';
+      }
+
+      relayCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updatePayload));
+      document.querySelectorAll('input[name="position"]').forEach((radio) => radio.addEventListener('change', updatePayload));
+      targetClientElement.addEventListener('change', updatePayload);
+      document.getElementById('select-all').addEventListener('click', () => {
+        relayCheckboxes.forEach((checkbox) => { checkbox.checked = true; });
+        updatePayload();
+      });
+
+      document.getElementById('send-command').addEventListener('click', () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          sendResult.textContent = 'WebSocket bağlantısı kapalı.';
+          sendResult.className = 'result-error';
+          return;
+        }
+
+        socket.send(JSON.stringify({
+          type: 'publish',
+          targetClientId: targetClientElement.value,
+          payload: payloadElement.value
+        }));
+        sendResult.textContent = 'Komut gönderildi.';
+        sendResult.className = 'result-success';
+      });
+
+      function addCell(row, value) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.appendChild(cell);
+        return cell;
+      }
+
+      function formatUptime(milliseconds) {
+        const totalSeconds = Math.floor((milliseconds || 0) / 1000);
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return [days ? `${days}g` : '', hours ? `${hours}sa` : '', minutes ? `${minutes}dk` : '', `${seconds}sn`]
+          .filter(Boolean)
+          .join(' ');
+      }
+
+      function render(state) {
+        onlineCount.textContent = state.onlineClients.length;
+        onlineList.replaceChildren();
+        emptyUsers.classList.toggle('hidden', state.onlineClients.length > 0);
+
+        const selectedClientId = targetClientElement.value;
+        targetClientElement.replaceChildren();
+
+        for (const client of state.onlineClients) {
+          const row = document.createElement('tr');
+          const statusCell = addCell(row, '');
+          const statusChip = document.createElement('span');
+          statusChip.className = 'status-chip up';
+          const dot = document.createElement('span');
+          dot.className = 'online-dot';
+          statusChip.append(dot, document.createTextNode(client.status || 'UP'));
+          statusCell.appendChild(statusChip);
+
+          const userCell = addCell(row, '');
+          const displayName = document.createElement('strong');
+          displayName.textContent = client.hostname || client.username;
+          const username = document.createElement('small');
+          username.textContent = client.username;
+          userCell.append(displayName, username);
+
+          const deviceCell = addCell(row, client.clientId);
+          const ip = document.createElement('small');
+          ip.textContent = client.ipAddress || 'IP bekleniyor';
+          deviceCell.appendChild(ip);
+          addCell(row, formatUptime(client.deviceUptimeMs));
+          addCell(row, client.lastSeenAt || client.connectedAt);
+          onlineList.appendChild(row);
+
+          const option = document.createElement('option');
+          option.value = client.clientId;
+          option.dataset.username = client.username;
+          option.dataset.topic = client.commandTopic;
+          option.textContent = `${client.username} — ${client.clientId}`;
+          targetClientElement.appendChild(option);
+        }
+
+        if ([...targetClientElement.options].some((option) => option.value === selectedClientId)) {
+          targetClientElement.value = selectedClientId;
+        }
+        document.getElementById('send-command').disabled = state.onlineClients.length === 0;
+        updatePayload();
+
+        logsElement.replaceChildren();
+        for (const log of state.logs) {
+          const row = document.createElement('div');
+          row.className = 'log-row';
+
+          const time = document.createElement('time');
+          time.textContent = log.timestamp;
+          const badge = document.createElement('span');
+          badge.className = `badge ${log.type.toLocaleLowerCase('tr-TR')}`;
+          badge.textContent = log.type;
+          const message = document.createElement('p');
+          message.textContent = log.message;
+
+          row.append(time, badge, message);
+          logsElement.appendChild(row);
+        }
+      }
+
+      function connectWebSocket() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(`${protocol}//${location.host}`);
+
+        socket.addEventListener('open', () => {
+          statusElement.textContent = 'Canlı bağlantı aktif';
+          statusElement.className = 'status online';
+        });
+
+        socket.addEventListener('message', (event) => {
+          const state = JSON.parse(event.data);
+          if (state.type === 'state') render(state);
+          if (state.type === 'publishError') {
+            sendResult.textContent = state.message;
+            sendResult.className = 'result-error';
+          }
+        });
+
+        socket.addEventListener('close', () => {
+          statusElement.textContent = 'Bağlantı kesildi';
+          statusElement.className = 'status offline';
+          setTimeout(connectWebSocket, 2000);
+        });
+      }
+
+      updatePayload();
+      connectWebSocket();
+    </script>
+  </body>
+</html>

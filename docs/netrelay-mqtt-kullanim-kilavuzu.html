@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="NetRelay donanımının MQTT Sunucu Paneli ile kurulumu, izlenmesi ve güvenli kullanımı için profesyonel uygulama kılavuzu.">
+  <title>NetRelay × MQTT | Kurulum ve Kullanım Kılavuzu</title>
+  <style>
+    :root {
+      --ink: #0b1830;
+      --muted: #5f6f86;
+      --paper: #f4f7fb;
+      --surface: #ffffff;
+      --line: #dce5f0;
+      --navy: #031633;
+      --navy-2: #07315c;
+      --cyan: #04b7e8;
+      --blue: #0877e8;
+      --green: #0eb981;
+      --amber: #f59e0b;
+      --red: #e23d51;
+      --radius: 20px;
+      --shadow: 0 18px 55px rgba(8, 34, 70, .11);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+
+    .topbar {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 68px;
+      padding: 0 5vw;
+      color: #fff;
+      background: rgba(3, 22, 51, .94);
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 850; letter-spacing: -.03em; }
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 11px;
+      color: #031633;
+      background: linear-gradient(135deg, #66e6ff, #04b7e8);
+      box-shadow: 0 0 24px rgba(4,183,232,.35);
+    }
+    .topbar nav { display: flex; gap: 24px; font-size: 13px; color: #c8d8ea; }
+    .topbar nav a { text-decoration: none; }
+    .topbar nav a:hover { color: #fff; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 660px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 78% 25%, rgba(0,184,232,.23), transparent 25%),
+        radial-gradient(circle at 15% 80%, rgba(8,119,232,.18), transparent 27%),
+        linear-gradient(135deg, #020d20 0%, #05284d 58%, #041a34 100%);
+    }
+    .hero::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      opacity: .2;
+      background-image: linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px);
+      background-size: 54px 54px;
+      mask-image: linear-gradient(to bottom, black, transparent 92%);
+    }
+    .hero-inner {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.06fr .94fr;
+      gap: 70px;
+      width: min(1180px, 90vw);
+      margin: 0 auto;
+      padding: 96px 0 84px;
+      align-items: center;
+    }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 22px;
+      color: #78e7ff;
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .kicker::before { width: 30px; height: 2px; content: ""; background: currentColor; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(44px, 6vw, 76px); line-height: .99; letter-spacing: -.065em; }
+    .hero h1 span { color: #6ce7ff; }
+    .lead { max-width: 680px; margin: 26px 0 32px; color: #c8d8ea; font-size: 18px; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 20px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .button.primary { color: #00172c; background: #64e5ff; box-shadow: 0 12px 30px rgba(4,183,232,.2); }
+    .button.ghost { color: #fff; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.05); }
+    .hero-product {
+      position: relative;
+      padding: 24px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 30px;
+      background: rgba(255,255,255,.07);
+      box-shadow: 0 35px 80px rgba(0,0,0,.3);
+      backdrop-filter: blur(16px);
+    }
+    .hero-product img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 20px; }
+    .product-label {
+      position: absolute;
+      right: -20px;
+      bottom: 42px;
+      padding: 13px 16px;
+      border-radius: 12px;
+      color: #07172a;
+      background: #fff;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .quickfacts {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      width: min(1100px, 90vw);
+      margin: -44px auto 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    .fact { padding: 24px 26px; border-right: 1px solid var(--line); }
+    .fact:last-child { border-right: 0; }
+    .fact strong { display: block; font-size: 19px; letter-spacing: -.025em; }
+    .fact span { color: var(--muted); font-size: 12px; }
+
+    .layout { display: grid; grid-template-columns: 230px minmax(0, 890px); gap: 54px; width: min(1180px, 92vw); margin: 85px auto; }
+    .toc { position: sticky; top: 96px; align-self: start; padding: 20px; border-left: 2px solid var(--line); }
+    .toc small { display: block; margin-bottom: 12px; color: var(--muted); font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+    .toc a { display: block; padding: 7px 0; color: #627188; font-size: 13px; text-decoration: none; }
+    .toc a:hover { color: var(--blue); }
+    main section { scroll-margin-top: 95px; margin-bottom: 86px; }
+    .section-index { color: var(--blue); font-size: 12px; font-weight: 900; letter-spacing: .12em; }
+    h2 { margin: 7px 0 16px; font-size: clamp(30px, 4vw, 46px); line-height: 1.08; letter-spacing: -.045em; }
+    h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -.025em; }
+    .section-intro { max-width: 740px; margin: 0 0 30px; color: var(--muted); font-size: 17px; }
+
+    .notice { display: grid; grid-template-columns: 44px 1fr; gap: 16px; margin: 24px 0; padding: 20px; border-radius: 15px; border: 1px solid #f2d49b; background: #fff8e9; }
+    .notice.danger { border-color: #ffc7cf; background: #fff1f3; }
+    .notice-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: #fff; background: var(--amber); font-weight: 900; }
+    .notice.danger .notice-icon { background: var(--red); }
+    .notice p { margin: 3px 0 0; color: #6f5a35; font-size: 14px; }
+    .notice.danger p { color: #75434b; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 52px 1fr 52px 1fr;
+      align-items: stretch;
+      margin-top: 32px;
+    }
+    .flow-card { padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 9px 28px rgba(8,34,70,.06); }
+    .flow-card b { display: block; margin-bottom: 5px; }
+    .flow-card span { color: var(--muted); font-size: 13px; }
+    .flow-icon { display: grid; width: 40px; height: 40px; margin-bottom: 14px; place-items: center; border-radius: 12px; color: var(--blue); background: #eaf4ff; font-weight: 900; }
+    .arrow { display: grid; place-items: center; color: var(--cyan); font-size: 25px; }
+
+    .step { position: relative; margin: 34px 0 64px; padding-left: 74px; }
+    .step-number { position: absolute; top: 0; left: 0; display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; color: #fff; background: linear-gradient(135deg, var(--blue), var(--cyan)); font-weight: 900; box-shadow: 0 10px 25px rgba(8,119,232,.2); }
+    .step p { color: var(--muted); }
+    .checklist { display: grid; gap: 9px; padding: 0; list-style: none; }
+    .checklist li { position: relative; padding-left: 28px; }
+    .checklist li::before { position: absolute; left: 0; content: "✓"; color: var(--green); font-weight: 900; }
+    .screen {
+      margin-top: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    .screen-bar { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 15px; background: #eaf0f7; }
+    .screen-bar i { width: 9px; height: 9px; border-radius: 50%; background: #becada; }
+    .screen img { width: 100%; }
+    .caption { padding: 12px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+
+    .settings-table { width: 100%; margin: 22px 0; overflow: hidden; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .settings-table th, .settings-table td { padding: 13px 15px; text-align: left; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+    .settings-table tr:last-child td { border-bottom: 0; }
+    .settings-table th { color: #41526a; background: #edf4fb; }
+    .settings-table td:first-child { width: 27%; font-weight: 800; }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; color: #00694b; background: #dff9ef; font-size: 11px; font-weight: 850; }
+
+    .code-card { position: relative; margin: 20px 0; overflow: hidden; border-radius: 16px; background: #07162d; box-shadow: var(--shadow); }
+    .code-head { display: flex; justify-content: space-between; padding: 12px 16px; color: #91a7c0; border-bottom: 1px solid #183454; font-size: 12px; }
+    .copy { padding: 4px 9px; border: 1px solid #2e4c6d; border-radius: 6px; color: #d8e8f8; background: transparent; cursor: pointer; }
+    pre { margin: 0; padding: 20px; overflow-x: auto; color: #cde7ff; font-size: 13px; line-height: 1.65; }
+    .key { color: #67ddff; }
+    .string { color: #a7f3d0; }
+    .number { color: #fdd88a; }
+
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card { padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 12px 34px rgba(8,34,70,.06); }
+    .card p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+    .card-tag { display: inline-block; margin-bottom: 14px; padding: 5px 8px; border-radius: 7px; color: #03638b; background: #ddf7ff; font-size: 11px; font-weight: 850; }
+
+    .data-path { padding: 25px; border: 1px solid #174978; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #04172f, #082f57); }
+    .topic { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 15px; border-radius: 10px; background: rgba(255,255,255,.07); }
+    .topic + .topic { margin-top: 10px; }
+    .topic code { color: #7ce7ff; font-size: 13px; }
+    .topic span { color: #a8bfd7; font-size: 12px; }
+
+    .footer { padding: 55px 5vw; color: #a8bfd7; background: #031633; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 30px; width: min(1180px, 100%); margin: 0 auto; }
+    .footer strong { color: #fff; }
+    .footer p { max-width: 600px; margin: 8px 0 0; font-size: 13px; }
+    .footer a { color: #67ddff; }
+
+    @media (max-width: 900px) {
+      .topbar nav, .toc { display: none; }
+      .hero-inner { grid-template-columns: 1fr; padding-top: 70px; }
+      .hero-product { max-width: 560px; }
+      .quickfacts { grid-template-columns: 1fr 1fr; }
+      .fact:nth-child(2) { border-right: 0; }
+      .fact:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .layout { display: block; }
+      .flow { grid-template-columns: 1fr; gap: 10px; }
+      .arrow { transform: rotate(90deg); }
+    }
+    @media (max-width: 620px) {
+      .hero-inner { width: min(92vw, 1180px); }
+      h1 { font-size: 43px; }
+      .quickfacts, .cards { grid-template-columns: 1fr; }
+      .fact { border-right: 0; border-bottom: 1px solid var(--line); }
+      .step { padding-left: 0; padding-top: 64px; }
+      .settings-table { display: block; overflow-x: auto; }
+      .footer-inner { flex-direction: column; }
+    }
+    @media print {
+      .topbar, .toc, .copy, .hero-actions { display: none !important; }
+      body { background: #fff; }
+      .hero { min-height: auto; color: var(--ink); background: #fff; }
+      .hero::before { display: none; }
+      .hero-inner { grid-template-columns: 1fr 280px; padding: 30px 0; }
+      .hero h1 span, .kicker { color: var(--blue); }
+      .lead { color: var(--muted); }
+      .quickfacts { margin-top: 0; box-shadow: none; }
+      .layout { display: block; margin-top: 40px; }
+      main section { break-inside: avoid; }
+      .screen, .code-card, .card { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">NR</span> NetRelay × MQTT</div>
+    <nav aria-label="Ana navigasyon">
+      <a href="#mimari">Mimari</a>
+      <a href="#kurulum">Kurulum</a>
+      <a href="#komutlar">Komutlar</a>
+      <a href="#olaylar">Olaylar</a>
+      <a href="#indirmeler">İndirmeler</a>
+      <a href="#sorun-giderme">Sorun giderme</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-inner">
+      <div>
+        <div class="kicker">Uygulama ve donanım kılavuzu · v1.0</div>
+        <h1>NetRelay’i <span>MQTT ile</span> izleyin ve yönetin.</h1>
+        <p class="lead">Dört röle çıkışını uzaktan kontrol edin, dört dijital girişteki değişimleri anlık izleyin ve birden fazla şubeyi tek merkez panelden güvenli biçimde yönetin.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#kurulum">Kuruluma başla →</a>
+          <a class="button ghost" href="https://netrelay.tr/" target="_blank" rel="noopener">NetRelay resmi sitesi</a>
+        </div>
+      </div>
+      <div class="hero-product">
+        <img src="assets/netrelay-product.jpg" alt="NetRelay endüstriyel IoT röle donanımı">
+        <div class="product-label">4 giriş · 4 röle · yerel MQTT</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="quickfacts" aria-label="Ürün özellikleri">
+    <div class="fact"><strong>4 × dijital giriş</strong><span>Anlık 0/1 olay takibi</span></div>
+    <div class="fact"><strong>4 × röle çıkışı</strong><span>250 V / 10 A röle kapasitesi*</span></div>
+    <div class="fact"><strong>PoE · Ethernet · Wi‑Fi</strong><span>Yerel ağ odaklı bağlantı</span></div>
+    <div class="fact"><strong>MQTT · HTTP · WebSocket</strong><span>Esnek entegrasyon katmanı</span></div>
+  </div>
+
+  <div class="layout">
+    <aside class="toc">
+      <small>Bu dokümanda</small>
+      <a href="#genel-bakis">01 · Genel bakış</a>
+      <a href="#mimari">02 · Sistem mimarisi</a>
+      <a href="#kurulum">03 · Cihaz kurulumu</a>
+      <a href="#mqtt">04 · MQTT ayarları</a>
+      <a href="#komutlar">05 · Röle komutları</a>
+      <a href="#olaylar">06 · Input ve röle olayları</a>
+      <a href="#indirmeler">07 · İndirmeler</a>
+      <a href="#guvenlik">08 · Güvenlik</a>
+      <a href="#sorun-giderme">09 · Sorun giderme</a>
+    </aside>
+
+    <main>
+      <section id="genel-bakis">
+        <span class="section-index">01 · GENEL BAKIŞ</span>
+        <h2>Tek panel, çok şube, anlık kontrol.</h2>
+        <p class="section-intro">Bu kurulumda her NetRelay cihazı MQTT broker’a kendine ait kullanıcı hesabıyla bağlanır. Merkez panel çevrimiçi cihazları gösterir, yalnızca seçilen cihaza komut yollar ve cihazdan gelen giriş/röle değişimlerini JSON olarak kaydeder.</p>
+
+        <div class="notice danger">
+          <div class="notice-icon">!</div>
+          <div><strong>Elektrik güvenliği</strong><p>250 V AC gibi tehlikeli gerilimlerle çalışma yalnızca yetkili ve ehil personel tarafından yapılmalıdır. Enerji vermeden önce bağlantıları ayırın, uygun sigorta ve muhafaza kullanın. Röle kapasitesi yük karakteristiği ve ürün varyantına göre doğrulanmalıdır.</p></div>
+        </div>
+
+        <div class="cards">
+          <article class="card"><span class="card-tag">YEREL KONTROL</span><h3>Bulut zorunluluğu yok</h3><p>Broker, panel ve cihazlar yerel ağ üzerinde çalışabilir. İnternet kesintisi yerel otomasyonu durdurmaz.</p></article>
+          <article class="card"><span class="card-tag">HEDEFLİ KOMUT</span><h3>Kullanıcıya özel topic</h3><p>Her cihaz yalnızca kendi <code>netrelay/&lt;kullanıcı&gt;/command</code> topic’ini dinler.</p></article>
+          <article class="card"><span class="card-tag">ANLIK TELEMETRİ</span><h3>Input ve röle event’leri</h3><p>GPIO değişimleri cihaz kimliği, hostname, IP ve çalışma süresiyle JSON olarak yayınlanır.</p></article>
+          <article class="card"><span class="card-tag">CANLI PANEL</span><h3>WebSocket güncellemeleri</h3><p>Çevrimiçi kullanıcılar ve loglar, sayfa yenilemeden merkez panelde güncellenir.</p></article>
+        </div>
+      </section>
+
+      <section id="mimari">
+        <span class="section-index">02 · SİSTEM MİMARİSİ</span>
+        <h2>Mesajın uçtan uca yolculuğu.</h2>
+        <p class="section-intro">Komutlar panelden broker’a, broker’dan yalnızca hedef cihaza gider. Donanım olayları ters yönde event topic’i üzerinden merkeze ulaşır.</p>
+        <div class="flow" aria-label="Sistem veri akışı">
+          <div class="flow-card"><div class="flow-icon">UI</div><b>MQTT Sunucu Paneli</b><span>Hedef kullanıcı, röle ve 0/1 konumu seçilir.</span></div>
+          <div class="arrow">→</div>
+          <div class="flow-card"><div class="flow-icon">MQ</div><b>Node.js MQTT Broker</b><span>Kimlik doğrular ve kullanıcıya özel topic’e yayınlar.</span></div>
+          <div class="arrow">→</div>
+          <div class="flow-card"><div class="flow-icon">IO</div><b>NetRelay Donanımı</b><span>Komutu uygular; giriş ve röle durumlarını JSON ile bildirir.</span></div>
+        </div>
+        <div class="data-path" style="margin-top:20px">
+          <div class="topic"><code>netrelay/biga_sube/command</code><span>Merkez → cihaz komutu</span></div>
+          <div class="topic"><code>netrelay/biga_sube/events</code><span>Cihaz → merkez olayları</span></div>
+        </div>
+      </section>
+
+      <section id="kurulum">
+        <span class="section-index">03 · CİHAZ KURULUMU</span>
+        <h2>NetRelay’i sahaya hazırlayın.</h2>
+        <p class="section-intro">Her kurulum noktasını benzersiz ve anlaşılır biçimde tanımlamak, merkez panelde doğru cihazı seçmenin temelidir.</p>
+
+        <article class="step">
+          <div class="step-number">1</div>
+          <h3>Genel ayarları yapılandırın</h3>
+          <p>Cihaz web arayüzünde <strong>General Settings</strong> sayfasını açın.</p>
+          <ul class="checklist">
+            <li><strong>Hostname:</strong> Şubeyi ifade eden kısa ve benzersiz bir ad kullanın; ör. <code>NetRelay-Biga</code>.</li>
+            <li><strong>IP:</strong> Statik IP kullanılacaksa adres, subnet, gateway ve DNS değerlerini ağ yöneticinizle doğrulayın.</li>
+            <li><strong>Device ID:</strong> Her fiziksel cihaz için benzersiz olmalıdır; ör. <code>1012</code>.</li>
+            <li><strong>Output / Input Names:</strong> Teknik pin adı yerine sahadaki işlevi yazın; ör. <code>KapiKilidi</code>, <code>YanginAlarmi</code>.</li>
+          </ul>
+          <div class="screen"><div class="screen-bar"><i></i><i></i><i></i></div><img src="assets/01-general-settings.png" alt="NetRelay genel ayarlar ekranı açıklamaları"><div class="caption">Şekil 1 — Hostname, ağ, cihaz ID ve I/O adlarının yapılandırılması.</div></div>
+        </article>
+
+        <article class="step">
+          <div class="step-number">2</div>
+          <h3>Input olayını MQTT’ye yönlendirin</h3>
+          <p><strong>Events</strong> sayfasında izlemek istediğiniz event kaydını düzenleyin.</p>
+          <ul class="checklist">
+            <li>Takip edilecek input’u seçin.</li>
+            <li><strong>Out</strong> alanını <code>mqtt</code> yapın.</li>
+            <li>Gerekirse operatörü, bekleme süresini ve aktif/pasif durumunu düzenleyin.</li>
+            <li>Kaydedin ve event’in listede aktif olduğunu doğrulayın.</li>
+          </ul>
+          <div class="screen"><div class="screen-bar"><i></i><i></i><i></i></div><img src="assets/02-event-management.png" alt="NetRelay event yönetimi ekranı açıklamaları"><div class="caption">Şekil 2 — Input olayının MQTT çıkışına yönlendirilmesi.</div></div>
+        </article>
+      </section>
+
+      <section id="mqtt">
+        <span class="section-index">04 · MQTT AYARLARI</span>
+        <h2>Cihazı broker’a bağlayın.</h2>
+        <p class="section-intro">NetRelay web arayüzündeki <strong>MQTT Client</strong> sayfasında broker ve hesap bilgilerini girin.</p>
+        <table class="settings-table">
+          <thead><tr><th>Alan</th><th>Önerilen değer</th><th>Açıklama</th></tr></thead>
+          <tbody>
+            <tr><td>MQTT Server</td><td><code>192.168.1.4</code></td><td>Node.js broker’ın yerel ağ IP adresi.</td></tr>
+            <tr><td>Başlık (Topic)</td><td><code>biga_şube</code></td><td>Cihazın yapılandırılmış yayın başlığı.</td></tr>
+            <tr><td>Sub Topic</td><td><code>fromServer</code></td><td>Mevcut cihaz iş akışlarında kullanılan alt topic.</td></tr>
+            <tr><td>MQTT Port</td><td><code>1883</code></td><td>TLS kullanılmayan standart MQTT portu.</td></tr>
+            <tr><td>MQTT User</td><td><code>biga_sube</code></td><td><code>users.json</code> içindeki benzersiz kullanıcı adı.</td></tr>
+            <tr><td>MQTT Password</td><td><span class="pill">GİZLİ</span></td><td>Sunucudaki kullanıcı kaydıyla birebir eşleşmelidir.</td></tr>
+            <tr><td>Client Mode</td><td><span class="pill">AKTİF</span></td><td>Kaydettikten sonra MQTT bağlantısını etkinleştirir.</td></tr>
+          </tbody>
+        </table>
+        <div class="screen"><div class="screen-bar"><i></i><i></i><i></i></div><img src="assets/03-mqtt-settings.png" alt="NetRelay MQTT istemci ayarları"><div class="caption">Şekil 3 — Broker, topic, port ve kimlik doğrulama ayarları.</div></div>
+        <div class="notice"><div class="notice-icon">i</div><div><strong>Topic sözleşmesi</strong><p>Firmware, merkez komutları için ayrıca <code>netrelay/&lt;mqttUsername&gt;/command</code> topic’ine otomatik abone olur ve olayları <code>netrelay/&lt;mqttUsername&gt;/events</code> topic’ine yayınlar.</p></div></div>
+      </section>
+
+      <section id="komutlar">
+        <span class="section-index">05 · RÖLE KOMUTLARI</span>
+        <h2>Doğru şubeye, doğru röle komutu.</h2>
+        <p class="section-intro">Merkez panelde çevrimiçi kullanıcıyı seçin; bir veya daha fazla röleyi işaretleyin; konumu <strong>1 (Açık)</strong> ya da <strong>0 (Kapalı)</strong> olarak belirleyip JSON mesajını gönderin.</p>
+        <div class="screen"><div class="screen-bar"><i></i><i></i><i></i></div><img src="assets/04-server-panel.png" alt="MQTT Sunucu Paneli üzerinde NetRelay komutu gönderme"><div class="caption">Şekil 4 — Çevrimiçi şube seçimi ve hedefli röle komutu.</div></div>
+
+        <div class="code-card">
+          <div class="code-head"><span>Röle 1 ve 3'ü aç</span><button class="copy" type="button">Kopyala</button></div>
+          <pre><code>{
+  <span class="key">"type"</span>: <span class="string">"netrelay"</span>,
+  <span class="key">"command"</span>: <span class="string">"set"</span>,
+  <span class="key">"targetUsername"</span>: <span class="string">"biga_sube"</span>,
+  <span class="key">"relays"</span>: [<span class="number">1</span>, <span class="number">3</span>],
+  <span class="key">"position"</span>: <span class="number">1</span>
+}</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-head"><span>Tüm röleleri kapat</span><button class="copy" type="button">Kopyala</button></div>
+          <pre><code>{
+  <span class="key">"type"</span>: <span class="string">"netrelay"</span>,
+  <span class="key">"command"</span>: <span class="string">"set"</span>,
+  <span class="key">"targetUsername"</span>: <span class="string">"biga_sube"</span>,
+  <span class="key">"relays"</span>: [<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>],
+  <span class="key">"position"</span>: <span class="number">0</span>
+}</code></pre>
+        </div>
+        <p><strong>Hedefleme garantisi:</strong> Broker topic’i seçilen çevrimiçi kullanıcıdan üretir. Firmware ayrıca <code>targetUsername</code> alanını kendi MQTT hesabıyla karşılaştırır; uyuşmayan komutu uygulamaz.</p>
+      </section>
+
+      <section id="olaylar">
+        <span class="section-index">06 · OLAY MESAJLARI</span>
+        <h2>Sahadaki her değişimi bağlamıyla alın.</h2>
+        <p class="section-intro">Input ve röle değişimleri kullanıcı, cihaz, IP, hostname ve çalışma süresi bilgileriyle sunucuya ulaşır. Sunucu doğrulanmış MQTT kullanıcı adı ve Client ID değerlerini bağlantıdan alır.</p>
+
+        <h3>Input durumu değiştiğinde</h3>
+        <div class="code-card">
+          <div class="code-head"><span>netrelay/biga_sube/events</span><button class="copy" type="button">Kopyala</button></div>
+          <pre><code>{
+  <span class="key">"type"</span>: <span class="string">"netrelay_input_event"</span>,
+  <span class="key">"mqttUsername"</span>: <span class="string">"biga_sube"</span>,
+  <span class="key">"deviceId"</span>: <span class="string">"1012"</span>,
+  <span class="key">"ipAddress"</span>: <span class="string">"192.168.1.50"</span>,
+  <span class="key">"hostname"</span>: <span class="string">"NetRelay-Biga"</span>,
+  <span class="key">"topic"</span>: <span class="string">"biga_şube"</span>,
+  <span class="key">"subtopic"</span>: <span class="string">"fromServer"</span>,
+  <span class="key">"input"</span>: <span class="number">1</span>,
+  <span class="key">"inputName"</span>: <span class="string">"KapiSensoru"</span>,
+  <span class="key">"io"</span>: <span class="number">1</span>,
+  <span class="key">"deviceUptimeMs"</span>: <span class="number">4567</span>
+}</code></pre>
+        </div>
+
+        <h3 style="margin-top:28px">Röle durumu değiştiğinde</h3>
+        <div class="code-card">
+          <div class="code-head"><span>netrelay/biga_sube/events</span><button class="copy" type="button">Kopyala</button></div>
+          <pre><code>{
+  <span class="key">"type"</span>: <span class="string">"netrelay_relay_event"</span>,
+  <span class="key">"username"</span>: <span class="string">"biga_sube"</span>,
+  <span class="key">"clientId"</span>: <span class="string">"1012"</span>,
+  <span class="key">"ipAddress"</span>: <span class="string">"192.168.1.50"</span>,
+  <span class="key">"hostname"</span>: <span class="string">"NetRelay-Biga"</span>,
+  <span class="key">"relay"</span>: <span class="number">2</span>,
+  <span class="key">"position"</span>: <span class="number">1</span>,
+  <span class="key">"deviceUptimeMs"</span>: <span class="number">12345</span>
+}</code></pre>
+        </div>
+
+        <table class="settings-table">
+          <thead><tr><th>Alan</th><th>Anlamı</th></tr></thead>
+          <tbody>
+            <tr><td><code>inputName</code></td><td>General Settings → INPUT NAMES alanındaki kullanıcı tanımlı isim.</td></tr>
+            <tr><td><code>io</code></td><td>Dijital girişin gerçek seviyesi: <code>0</code> veya <code>1</code>.</td></tr>
+            <tr><td><code>position</code></td><td>Röle çıkışının gerçek GPIO seviyesi: <code>0</code> veya <code>1</code>.</td></tr>
+            <tr><td><code>deviceUptimeMs</code></td><td>Cihaz açıldığından beri geçen milisaniye; yeniden başlatmaları anlamaya yardımcı olur.</td></tr>
+            <tr><td><code>serverReceivedAt</code></td><td>Sunucunun normalize edilmiş loga eklediği ISO zaman damgası.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="indirmeler">
+        <span class="section-index">07 · İNDİRMELER</span>
+        <h2>Örnek kod ve güncel firmware.</h2>
+        <p class="section-intro">NetRelay MQTT uygulamasını kurmak veya cihaz firmware’ını güncellemek için gerekli paketlere aşağıdan ulaşabilirsiniz.</p>
+        <div class="cards">
+          <article class="card">
+            <span class="card-tag">NODE.JS · MQTT SERVER</span>
+            <h3>MQTT sunucu örnek kodu</h3>
+            <p>MQTT broker, kullanıcı doğrulaması, canlı web paneli, WebSocket logları ve hedefli NetRelay röle kontrolü için örnek proje.</p>
+            <a class="button primary" style="margin-top:20px" href="https://mlteknoloji.com/netRelay/mqttserver.rar" download>MQTT Server’ı indir ↓</a>
+            <p><small>RAR paketi · yaklaşık 23 KB</small></p>
+          </article>
+          <article class="card">
+            <span class="card-tag">NETRELAY · V3.3.4</span>
+            <h3>Güncel firmware</h3>
+            <p>MQTT komut işleme, röle/input event mesajları, cihaz heartbeat’i, uptime, IP ve hostname desteğini içeren firmware paketi.</p>
+            <a class="button primary" style="margin-top:20px" href="https://mlteknoloji.com/netRelay/firmware_v3_3_4.rar" download>Firmware v3.3.4’ü indir ↓</a>
+            <p><small>RAR paketi · yaklaşık 773 KB</small></p>
+          </article>
+        </div>
+        <div class="notice">
+          <div class="notice-icon">i</div>
+          <div><strong>Güncelleme öncesi</strong><p>Mevcut cihaz ayarlarınızı yedekleyin, doğru donanım sürümünü kullandığınızı doğrulayın ve firmware yüklemesi sırasında cihazın enerjisini kesmeyin.</p></div>
+        </div>
+      </section>
+
+      <section id="guvenlik">
+        <span class="section-index">08 · GÜVENLİK</span>
+        <h2>Saha kontrolünü koruyun.</h2>
+        <div class="cards">
+          <article class="card"><span class="card-tag">HESAPLAR</span><h3>Her cihaz için ayrı kullanıcı</h3><p>Şubeler arasında hesap paylaşmayın. Uzun, benzersiz parolalar kullanın ve <code>users.json</code> dosyasını sürüm kontrolüne eklemeyin.</p></article>
+          <article class="card"><span class="card-tag">AĞ</span><h3>IoT VLAN kullanın</h3><p>Cihazları ayrı bir VLAN’da tutun; yalnızca MQTT broker ve gerekli yönetim istemcilerine erişim verin.</p></article>
+          <article class="card"><span class="card-tag">İNTERNET</span><h3>1883 portunu doğrudan açmayın</h3><p>Uzak erişimde VPN tercih edin. İnternet üzerinden MQTT gerekiyorsa TLS, sertifika doğrulama ve erişim listeleri kullanın.</p></article>
+          <article class="card"><span class="card-tag">PANEL</span><h3>Web erişimini sınırlandırın</h3><p>Röle komutu gönderen web panelini güvenilir ağla sınırlayın ve üretimde ayrıca web oturum doğrulaması ekleyin.</p></article>
+        </div>
+      </section>
+
+      <section id="sorun-giderme">
+        <span class="section-index">09 · SORUN GİDERME</span>
+        <h2>Hızlı kontrol listesi.</h2>
+        <table class="settings-table">
+          <thead><tr><th>Belirti</th><th>Kontrol</th></tr></thead>
+          <tbody>
+            <tr><td>Cihaz çevrimiçi görünmüyor</td><td>Broker IP/port, ağ geçidi, kablo/PoE, MQTT Client Mode ve kullanıcı/parola eşleşmesini kontrol edin.</td></tr>
+            <tr><td><code>Not authorized</code></td><td>NetRelay MQTT User/Password değerlerinin sunucudaki <code>users.json</code> ile aynı olduğundan emin olun.</td></tr>
+            <tr><td>Komut cihaza ulaşmıyor</td><td>Cihazı yeni firmware ile yeniden başlatın; seri monitörde özel command topic aboneliğini doğrulayın.</td></tr>
+            <tr><td>Yanlış cihaz komut alıyor</td><td>Her şubenin farklı MQTT kullanıcı adı kullandığını ve panelde doğru çevrimiçi hesabın seçildiğini doğrulayın.</td></tr>
+            <tr><td>Input olayı görünmüyor</td><td>Input pinini, INPUT NAMES ayarını ve event topic loglarını kontrol edin. Giriş değişimi 30 ms kararlılık filtresinden geçer.</td></tr>
+            <tr><td>Türkçe karakter bozuk</td><td>Terminal ve log dosyalarının UTF‑8 kullandığını doğrulayın. Web paneli UTF‑8 olarak servis edilir.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="notice"><div class="notice-icon">✓</div><div><strong>Devreye alma testi</strong><p>Önce yüksüz veya güvenli düşük gerilimli bir test devresiyle Röle 1’i aç/kapatın; ardından input değişimini tetikleyip panelde doğru <code>inputName</code> ve <code>io</code> değerlerini gözlemleyin.</p></div></div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div><strong>NetRelay × MQTT Kullanım Kılavuzu</strong><p>Bu doküman, verilen MQTT test PDF’i, mevcut uygulama/firmware davranışı ve NetRelay’in resmî ürün bilgileri temel alınarak hazırlanmıştır.</p></div>
+      <div><a href="https://netrelay.tr/" target="_blank" rel="noopener">netrelay.tr ↗</a><p>* Teknik değerleri ve elektriksel limitleri her zaman ürününüzün güncel resmî dokümanından doğrulayın.</p></div>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll('.copy').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const code = button.closest('.code-card').querySelector('code').innerText;
+        try {
+          await navigator.clipboard.writeText(code);
+          const oldText = button.textContent;
+          button.textContent = 'Kopyalandı';
+          setTimeout(() => { button.textContent = oldText; }, 1400);
+        } catch {
+          button.textContent = 'Seçip kopyalayın';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
