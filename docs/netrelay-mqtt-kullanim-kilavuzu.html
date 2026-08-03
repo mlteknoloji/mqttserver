@@ -434,7 +434,8 @@
   <span class="key">"command"</span>: <span class="string">"set"</span>,
   <span class="key">"targetUsername"</span>: <span class="string">"biga_sube"</span>,
   <span class="key">"relays"</span>: [<span class="number">1</span>, <span class="number">3</span>],
-  <span class="key">"position"</span>: <span class="number">1</span>
+  <span class="key">"position"</span>: <span class="number">1</span>,
+  <span class="key">"delay"</span>: <span class="number">3</span>
 }</code></pre>
         </div>
         <div class="code-card">
@@ -444,9 +445,11 @@
   <span class="key">"command"</span>: <span class="string">"set"</span>,
   <span class="key">"targetUsername"</span>: <span class="string">"biga_sube"</span>,
   <span class="key">"relays"</span>: [<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>],
-  <span class="key">"position"</span>: <span class="number">0</span>
+  <span class="key">"position"</span>: <span class="number">0</span>,
+  <span class="key">"delay"</span>: <span class="number">0</span>
 }</code></pre>
         </div>
+        <p><strong>Gecikmeli geri dönüş:</strong> <code>delay: 0</code> röleyi yeni konumunda bırakır. Pozitif bir değer röleyi belirtilen saniye sonunda komut öncesindeki konumuna döndürür.</p>
         <p><strong>Hedefleme garantisi:</strong> Broker topic’i seçilen çevrimiçi kullanıcıdan üretir. Firmware ayrıca <code>targetUsername</code> alanını kendi MQTT hesabıyla karşılaştırır; uyuşmayan komutu uygulamaz.</p>
       </section>
 

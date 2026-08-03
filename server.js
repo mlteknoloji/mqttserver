@@ -239,18 +239,22 @@ async function startServer() {
           payload.relays.length > 0 &&
           payload.relays.every((relay) => Number.isInteger(relay) && relay >= 1 && relay <= 4);
         const validPosition = payload.position === 0 || payload.position === 1;
+        const delay = payload.delay === undefined ? 0 : payload.delay;
+        const validDelay = Number.isInteger(delay) && delay >= 0 && delay <= 4294967;
 
         if (
           payload.type !== 'netrelay' ||
           payload.command !== 'set' ||
           payload.targetUsername !== target.username ||
           !validRelays ||
-          !validPosition
+          !validPosition ||
+          !validDelay
         ) {
           throw new Error('NetRelay JSON formatı geçersiz.');
         }
 
         payload.relays = [...new Set(payload.relays)];
+        payload.delay = delay;
         const jsonPayload = JSON.stringify(payload);
         const topic = target.commandTopic;
 

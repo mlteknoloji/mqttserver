@@ -183,11 +183,13 @@ netrelay/<kullanici>/command
   "command": "set",
   "targetUsername": "cihaz1",
   "relays": [1, 2],
-  "position": 1
+  "position": 1,
+  "delay": 3
 }
 ```
 
 `position: 1` röleyi açar, `position: 0` röleyi kapatır.
+`delay: 0` durumunda röle yeni konumunda kalır. Pozitif bir `delay` değerinde röle, belirtilen saniye sonunda komut öncesindeki konumuna döner.
 
 ## Test istemcisi
 

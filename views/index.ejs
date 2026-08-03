@@ -98,6 +98,11 @@
           </fieldset>
 
           <label>
+            Gecikme (saniye)
+            <input id="relay-delay" type="number" min="0" max="4294967" step="1" value="0">
+          </label>
+
+          <label>
             Gönderilecek JSON mesajı
             <textarea id="json-payload" rows="8" spellcheck="false"></textarea>
           </label>
@@ -135,6 +140,7 @@
       const targetClientElement = document.getElementById('target-client');
       const topicElement = document.getElementById('command-topic');
       const payloadElement = document.getElementById('json-payload');
+      const relayDelayElement = document.getElementById('relay-delay');
       const relayCheckboxes = [...document.querySelectorAll('.relay-checkbox')];
       const sendResult = document.getElementById('send-result');
       let socket;
@@ -150,13 +156,15 @@
           command: 'set',
           targetUsername: selectedTarget?.dataset.username || '',
           relays,
-          position: Number(document.querySelector('input[name="position"]:checked').value)
+          position: Number(document.querySelector('input[name="position"]:checked').value),
+          delay: Number(relayDelayElement.value)
         }, null, 2);
         topicElement.value = selectedTarget?.dataset.topic || '';
       }
 
       relayCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updatePayload));
       document.querySelectorAll('input[name="position"]').forEach((radio) => radio.addEventListener('change', updatePayload));
+      relayDelayElement.addEventListener('input', updatePayload);
       targetClientElement.addEventListener('change', updatePayload);
       document.getElementById('select-all').addEventListener('click', () => {
         relayCheckboxes.forEach((checkbox) => { checkbox.checked = true; });
