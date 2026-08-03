@@ -199,30 +199,6 @@ npm run client
 
 Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQTT_PASSWORD` bilgilerini kullanır. Bağlanır, `test/mesaj` topic'ine bir mesaj gönderir ve kendi `netrelay/<kullanici>/command` topic'ini dinler. Kapatmak için `Ctrl+C` kullanın.
 
-## GitHub'a yeni sürüm gönderme
-
-Windows'ta [githuba_gonder.bat](githuba_gonder.bat) dosyasını çift tıklayabilir veya terminalden çalıştırabilirsiniz.
-
-Hata düzeltmesi / küçük güncelleme (`1.0.0` → `1.0.1`):
-
-```bat
-githuba_gonder.bat
-```
-
-Yeni özellik sürümü (`1.0.1` → `1.1.0`):
-
-```bat
-githuba_gonder.bat minor "Yeni ozellikler"
-```
-
-Ana sürüm (`1.1.0` → `2.0.0`):
-
-```bat
-githuba_gonder.bat major "Yeni ana surum"
-```
-
-Betik sürümü günceller, bütün değişiklikleri commit eder, `v1.0.1` biçiminde Git etiketi oluşturur ve commit ile etiketi `origin` GitHub deposuna gönderir. GitHub kimlik doğrulaması istenirse hesabınızla giriş yapın.
-
 ## Sorun giderme
 
 ### `REDDEDİLDİ` mesajı
@@ -266,7 +242,6 @@ public/              Panel CSS ve tarayıcı kodları
 users.json           Broker kullanıcıları ve parolaları
 .env.example         Örnek ortam ayarları
 users.example.json   Örnek kullanıcılar
-githuba_gonder.bat   Sürüm oluşturma ve GitHub'a gönderme betiği
 docs/                Ayrıntılı NetRelay dokümanları ve görseller
 ```
 
