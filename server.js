@@ -4,16 +4,34 @@ const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const tls = require('node:tls');
 const os = require('node:os');
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const { Aedes } = require('aedes');
+const { createSecurityStore } = require('./security');
 
 const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
 const WEB_PORT = Number(process.env.WEB_PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+const MQTT_TLS_ENABLED = process.env.MQTT_TLS_ENABLED === '1';
+const MQTT_TLS_PORT = Number(process.env.MQTT_TLS_PORT) || 8883;
+const MQTT_TLS_REQUEST_CLIENT_CERT = process.env.MQTT_TLS_REQUEST_CLIENT_CERT === '1';
 const USERS_FILE = path.join(__dirname, 'users.json');
 const MAX_LOGS = 200;
+const FAIL2BAN_MAX_ATTEMPTS = Number(process.env.FAIL2BAN_MAX_ATTEMPTS) || 5;
+const FAIL2BAN_FIND_TIME_MINUTES = Number(process.env.FAIL2BAN_FIND_TIME_MINUTES) || 10;
+const FAIL2BAN_BAN_TIME_MINUTES = Number(process.env.FAIL2BAN_BAN_TIME_MINUTES) || 60;
+const configuredSecurityDbPath = process.env.SECURITY_DB_PATH || 'security.sqlite3';
+const SECURITY_DB_PATH = configuredSecurityDbPath === ':memory:'
+  ? ':memory:'
+  : path.resolve(__dirname, configuredSecurityDbPath);
+const security = createSecurityStore({
+  databasePath: SECURITY_DB_PATH,
+  maxAttempts: FAIL2BAN_MAX_ATTEMPTS,
+  findTimeMs: FAIL2BAN_FIND_TIME_MINUTES * 60 * 1000,
+  banTimeMs: FAIL2BAN_BAN_TIME_MINUTES * 60 * 1000
+});
 
 const onlineClients = new Map();
 const logs = [];
@@ -160,6 +178,7 @@ function getState() {
   return {
     type: 'state',
     onlineClients: Array.from(onlineClients.values()),
+    blacklist: security.listBlacklist(),
     logs
   };
 }
@@ -191,13 +210,28 @@ async function startServer() {
   const users = loadUsers();
   const broker = await Aedes.createBroker({
     authenticate(client, username, password, callback) {
+      const remoteIp = security.normalizeIp(client.conn?.remoteAddress);
+      if (security.isBlacklisted(remoteIp)) {
+        addLog('ENGELLENDİ', `Blacklisted IP MQTT bağlantısı reddedildi: ${remoteIp}`);
+        callback(null, false);
+        return;
+      }
+
       const enteredUsername = username?.toString();
       const enteredPassword = password?.toString();
       const isValid = users.get(enteredUsername) === enteredPassword;
 
       if (isValid) {
         client.authenticatedUsername = enteredUsername;
+        security.clearFailures(remoteIp);
       } else {
+        const result = security.recordFailure(remoteIp);
+        if (result.banned) {
+          addLog(
+            'BLACKLIST',
+            `IP ${result.ip}, ${result.attempts} başarısız girişten sonra ${FAIL2BAN_BAN_TIME_MINUTES} dakika engellendi.`
+          );
+        }
         addLog('REDDEDİLDİ', `Client ID: ${client.id || 'bilinmiyor'}`);
       }
 
@@ -206,6 +240,27 @@ async function startServer() {
   });
 
   const mqttServer = net.createServer(broker.handle);
+  let mqttTlsServer;
+  if (MQTT_TLS_ENABLED) {
+    if (!process.env.MQTT_TLS_KEY || !process.env.MQTT_TLS_CERT) {
+      throw new Error('MQTT TLS için MQTT_TLS_KEY ve MQTT_TLS_CERT zorunludur.');
+    }
+    if (MQTT_TLS_REQUEST_CLIENT_CERT && !process.env.MQTT_TLS_CA) {
+      throw new Error('Karşılıklı TLS için MQTT_TLS_CA zorunludur.');
+    }
+
+    const tlsOptions = {
+      key: fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_KEY)),
+      cert: fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_CERT)),
+      minVersion: 'TLSv1.2',
+      requestCert: MQTT_TLS_REQUEST_CLIENT_CERT,
+      rejectUnauthorized: MQTT_TLS_REQUEST_CLIENT_CERT
+    };
+    if (process.env.MQTT_TLS_CA) {
+      tlsOptions.ca = fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_CA));
+    }
+    mqttTlsServer = tls.createServer(tlsOptions, broker.handle);
+  }
   const app = express();
   const webServer = http.createServer(app);
 
@@ -217,7 +272,10 @@ async function startServer() {
     response.render('index', {
       onlineClients: Array.from(onlineClients.values()),
       logs,
-      mqttAddresses: getLocalIpAddresses().map((ip) => `${ip}:${MQTT_PORT}`)
+      mqttAddresses: getLocalIpAddresses().flatMap((ip) => [
+        `mqtt://${ip}:${MQTT_PORT}`,
+        ...(MQTT_TLS_ENABLED ? [`mqtts://${ip}:${MQTT_TLS_PORT}`] : [])
+      ])
     });
   });
 
@@ -226,8 +284,28 @@ async function startServer() {
     socket.send(JSON.stringify(getState()));
 
     socket.on('message', (rawMessage) => {
+      let request;
       try {
-        const request = JSON.parse(rawMessage.toString());
+        request = JSON.parse(rawMessage.toString());
+
+        if (request.type === 'blacklistAdd') {
+          const ip = security.addManualBan(request.ip, request.reason);
+          for (const mqttClient of Object.values(broker.clients)) {
+            if (security.normalizeIp(mqttClient.conn?.remoteAddress) === ip) mqttClient.conn?.destroy();
+          }
+          addLog('BLACKLIST', `IP ${ip} web panelinden manuel engellendi.`);
+          socket.send(JSON.stringify({ type: 'blacklistSuccess', message: `IP ${ip} engellendi.` }));
+          return;
+        }
+
+        if (request.type === 'blacklistRemove') {
+          const ip = security.normalizeIp(request.ip);
+          if (!security.removeBan(ip)) throw new Error('Blacklist kaydı bulunamadı.');
+          addLog('BLACKLIST', `IP ${ip} blacklist listesinden kaldırıldı.`);
+          socket.send(JSON.stringify({ type: 'blacklistSuccess', message: `IP ${ip} kaldırıldı.` }));
+          return;
+        }
+
         if (request.type !== 'publish') return;
 
         const target = onlineClients.get(String(request.targetClientId || ''));
@@ -277,7 +355,8 @@ async function startServer() {
           }
         );
       } catch (error) {
-        socket.send(JSON.stringify({ type: 'publishError', message: error.message }));
+        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : 'publishError';
+        socket.send(JSON.stringify({ type, message: error.message }));
       }
     });
   });
@@ -287,6 +366,7 @@ async function startServer() {
       clientId: client.id,
       username: client.authenticatedUsername,
       commandTopic: `netrelay/${client.authenticatedUsername}/command`,
+      remoteIp: security.normalizeIp(client.conn?.remoteAddress),
       status: 'UP',
       deviceUptimeMs: 0,
       hostname: '',
@@ -346,15 +426,32 @@ async function startServer() {
   });
 
   mqttServer.on('error', (error) => addLog('HATA', `MQTT: ${error.message}`));
+  mqttTlsServer?.on('error', (error) => addLog('HATA', `MQTT TLS: ${error.message}`));
   webServer.on('error', (error) => addLog('HATA', `Web: ${error.message}`));
 
   mqttServer.listen(MQTT_PORT, HOST, () => {
+    addLog(
+      'SİSTEM',
+      `MQTT koruması aktif: ${FAIL2BAN_FIND_TIME_MINUTES} dakikada ${FAIL2BAN_MAX_ATTEMPTS} hata, ${FAIL2BAN_BAN_TIME_MINUTES} dakika engel.`
+    );
     addLog('SİSTEM', `MQTT server tüm ağlarda çalışıyor: ${HOST}:${MQTT_PORT}`);
     addLog('SİSTEM', `${users.size} kullanıcı users.json dosyasından yüklendi.`);
     for (const ip of getLocalIpAddresses()) {
       addLog('SİSTEM', `MQTT bağlantı adresi: mqtt://${ip}:${MQTT_PORT}`);
     }
   });
+
+  if (mqttTlsServer) {
+    mqttTlsServer.listen(MQTT_TLS_PORT, HOST, () => {
+      addLog('SİSTEM', `MQTT TLS server çalışıyor: ${HOST}:${MQTT_TLS_PORT} (TLS 1.2+)`);
+      addLog(
+        'SİSTEM',
+        MQTT_TLS_REQUEST_CLIENT_CERT
+          ? 'MQTT karşılıklı TLS istemci sertifikası doğrulaması aktif.'
+          : 'MQTT TLS aktif; istemci sertifikası doğrulaması kapalı.'
+      );
+    });
+  }
 
   webServer.listen(WEB_PORT, HOST, () => {
     addLog('SİSTEM', `Web paneli tüm ağlarda çalışıyor: ${HOST}:${WEB_PORT}`);
@@ -363,6 +460,25 @@ async function startServer() {
     }
   });
 }
+
+const blacklistCleanupTimer = setInterval(() => {
+  if (security.cleanupExpired() > 0) broadcastState();
+}, 60 * 1000);
+blacklistCleanupTimer.unref();
+
+function shutdown() {
+  clearInterval(blacklistCleanupTimer);
+  security.close();
+}
+
+process.once('SIGINT', () => {
+  shutdown();
+  process.exit(0);
+});
+process.once('SIGTERM', () => {
+  shutdown();
+  process.exit(0);
+});
 
 startServer().catch((error) => {
   console.error('Sunucu başlatılamadı:', error.message);

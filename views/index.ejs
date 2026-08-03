@@ -116,6 +116,34 @@
 
       <section class="card panel">
         <div class="panel-title">
+          <h2>MQTT Blacklist</h2>
+          <span>SQLite üzerinde kalıcı</span>
+        </div>
+        <form id="blacklist-form" class="blacklist-form">
+          <label>
+            IP adresi
+            <input id="blacklist-ip" type="text" required placeholder="192.168.1.25">
+          </label>
+          <label>
+            Açıklama
+            <input id="blacklist-reason" type="text" maxlength="200" placeholder="Manuel engelleme nedeni">
+          </label>
+          <button class="danger-button" type="submit">Blacklist'e ekle</button>
+          <span id="blacklist-result"></span>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>IP adresi</th><th>Neden</th><th>Hatalı giriş</th><th>Engellenme</th><th>Bitiş</th><th>İşlem</th></tr>
+            </thead>
+            <tbody id="blacklist-list"></tbody>
+          </table>
+          <p id="empty-blacklist" class="empty">Blacklist boş.</p>
+        </div>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-title">
           <h2>Sunucu logları</h2>
           <span>Son 200 kayıt</span>
         </div>
@@ -143,6 +171,9 @@
       const relayDelayElement = document.getElementById('relay-delay');
       const relayCheckboxes = [...document.querySelectorAll('.relay-checkbox')];
       const sendResult = document.getElementById('send-result');
+      const blacklistList = document.getElementById('blacklist-list');
+      const emptyBlacklist = document.getElementById('empty-blacklist');
+      const blacklistResult = document.getElementById('blacklist-result');
       let socket;
 
       function updatePayload() {
@@ -185,6 +216,27 @@
         }));
         sendResult.textContent = 'Komut gönderildi.';
         sendResult.className = 'result-success';
+      });
+
+      document.getElementById('blacklist-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({
+          type: 'blacklistAdd',
+          ip: document.getElementById('blacklist-ip').value,
+          reason: document.getElementById('blacklist-reason').value
+        }));
+        event.target.reset();
+        blacklistResult.textContent = 'İşlem yapılıyor...';
+        blacklistResult.className = '';
+      });
+
+      blacklistList.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-remove-ip]');
+        if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'blacklistRemove', ip: button.dataset.removeIp }));
+        blacklistResult.textContent = 'İşlem yapılıyor...';
+        blacklistResult.className = '';
       });
 
       function addCell(row, value) {
@@ -252,6 +304,25 @@
         document.getElementById('send-command').disabled = state.onlineClients.length === 0;
         updatePayload();
 
+        blacklistList.replaceChildren();
+        emptyBlacklist.classList.toggle('hidden', state.blacklist.length > 0);
+        for (const entry of state.blacklist) {
+          const row = document.createElement('tr');
+          addCell(row, entry.ip);
+          addCell(row, entry.reason);
+          addCell(row, entry.failedAttempts);
+          addCell(row, new Date(entry.bannedAt).toLocaleString('tr-TR'));
+          addCell(row, entry.expiresAt ? new Date(entry.expiresAt).toLocaleString('tr-TR') : 'Süresiz');
+          const actionCell = addCell(row, '');
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'danger-button compact';
+          removeButton.dataset.removeIp = entry.ip;
+          removeButton.textContent = 'Kaldır';
+          actionCell.appendChild(removeButton);
+          blacklistList.appendChild(row);
+        }
+
         logsElement.replaceChildren();
         for (const log of state.logs) {
           const row = document.createElement('div');
@@ -285,6 +356,10 @@
           if (state.type === 'publishError') {
             sendResult.textContent = state.message;
             sendResult.className = 'result-error';
+          }
+          if (state.type === 'blacklistSuccess' || state.type === 'blacklistError') {
+            blacklistResult.textContent = state.message;
+            blacklistResult.className = state.type === 'blacklistSuccess' ? 'result-success' : 'result-error';
           }
         });
 

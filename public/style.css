@@ -64,6 +64,11 @@ legend { padding: 0 7px; color: #94a3b8; font-size: 13px; font-weight: 700; }
 .secondary-button { background: #334155; }
 .result-success { color: #6ee7b7; }
 .result-error { color: #fca5a5; }
+.blacklist-form { display: grid; grid-template-columns: 1fr 2fr auto auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #263247; }
+.blacklist-form label { display: flex; flex-direction: column; gap: 8px; color: #94a3b8; font-size: 13px; font-weight: 700; }
+.danger-button { padding: 10px 15px; border: 0; border-radius: 8px; color: #fff; background: #b91c1c; cursor: pointer; font-weight: 800; }
+.danger-button:hover { background: #991b1b; }
+.danger-button.compact { padding: 7px 10px; font-size: 12px; }
 
 @media (max-width: 700px) {
   .container { width: min(100% - 20px, 1180px); padding-top: 24px; }
@@ -73,4 +78,5 @@ legend { padding: 0 7px; color: #94a3b8; font-size: 13px; font-weight: 700; }
   .relay-form > label, .relay-form fieldset, .send-row { grid-column: 1; }
   .log-row { grid-template-columns: 1fr auto; }
   .log-row p { grid-column: 1 / -1; }
+  .blacklist-form { grid-template-columns: 1fr; align-items: stretch; }
 }

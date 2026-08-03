@@ -2,3 +2,8 @@ node_modules/
 npm-debug.log*
 mqttserver.rar
 githuba_gonder.bat
+security.sqlite3
+security.sqlite3-shm
+security.sqlite3-wal
+certs/*.pem
+certs/*.key

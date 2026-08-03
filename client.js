@@ -1,22 +1,43 @@
 require('dotenv').config({ quiet: true });
 
 const mqtt = require('mqtt');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const MQTT_USERNAME = process.env.MQTT_USERNAME;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
 const MQTT_HOST = process.env.MQTT_HOST || 'localhost';
-const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
+const MQTT_TLS_ENABLED = process.env.MQTT_TLS_ENABLED === '1';
+const MQTT_PORT = MQTT_TLS_ENABLED
+  ? Number(process.env.MQTT_TLS_PORT) || 8883
+  : Number(process.env.MQTT_PORT) || 1883;
 
 if (!MQTT_USERNAME || !MQTT_PASSWORD) {
   console.error('MQTT_USERNAME ve MQTT_PASSWORD tanımlanmalıdır.');
   process.exit(1);
 }
 
-const client = mqtt.connect(`mqtt://${MQTT_HOST}:${MQTT_PORT}`, {
+const connectionOptions = {
   clientId: `test-client-${Date.now()}`,
   username: MQTT_USERNAME,
   password: MQTT_PASSWORD
-});
+};
+
+if (MQTT_TLS_ENABLED) {
+  if (!process.env.MQTT_TLS_CA) {
+    console.error('TLS test istemcisi için MQTT_TLS_CA tanımlanmalıdır.');
+    process.exit(1);
+  }
+  connectionOptions.ca = fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_CA));
+  connectionOptions.rejectUnauthorized = true;
+  if (process.env.MQTT_TLS_CLIENT_CERT && process.env.MQTT_TLS_CLIENT_KEY) {
+    connectionOptions.cert = fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_CLIENT_CERT));
+    connectionOptions.key = fs.readFileSync(path.resolve(__dirname, process.env.MQTT_TLS_CLIENT_KEY));
+  }
+}
+
+const protocol = MQTT_TLS_ENABLED ? 'mqtts' : 'mqtt';
+const client = mqtt.connect(`${protocol}://${MQTT_HOST}:${MQTT_PORT}`, connectionOptions);
 
 client.on('connect', () => {
   console.log('Servera bağlandı.');

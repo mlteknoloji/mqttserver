@@ -15,6 +15,57 @@ NetRelay cihazları için hazırlanmış Node.js tabanlı bir MQTT broker, web y
 - NetRelay input, röle ve cihaz durum mesajlarını JSON olarak işleme
 - MQTT bağlantısını sınamak için test istemcisi
 - Tek komutla sürüm artırma ve GitHub'a gönderme
+- Başarısız MQTT girişlerini IP bazında izleyen Fail2Ban benzeri koruma
+- SQLite üzerinde kalıcı blacklist yönetimi ve web panelinden kayıt ekleme/kaldırma
+
+## MQTT giriş koruması
+
+Sunucu, MQTT kullanıcı adı/parola denemelerini IP adresine göre takip eden Fail2Ban benzeri bir uygulama korumasına sahiptir. Varsayılan olarak aynı IP adresinden 10 dakika içinde 5 başarısız giriş algılandığında IP adresi 60 dakika boyunca engellenir. Engellenmiş bir IP doğru kullanıcı bilgilerini gönderse bile engel kaldırılana veya süresi dolana kadar MQTT broker'a bağlanamaz.
+
+Başarılı bir giriş yapıldığında o IP için birikmiş başarısız denemeler temizlenir. IPv4, IPv6 ve `::ffff:192.168.1.10` biçimindeki IPv4-mapped IPv6 adresleri desteklenir.
+
+### Blacklist yönetimi
+
+Web panelindeki **MQTT Blacklist** bölümünde şu bilgiler gösterilir:
+
+- Engellenen IP adresi
+- Otomatik veya manuel engelleme nedeni
+- Engellemeye neden olan başarısız giriş sayısı
+- Engellenme zamanı
+- Otomatik engelin sona ereceği zaman veya süresiz bilgisi
+
+Panelden geçerli bir IPv4 ya da IPv6 adresi manuel olarak blacklist listesine eklenebilir. Manuel eklenen kayıtlar süresizdir. IP adresi o anda MQTT broker'a bağlıysa bağlantısı kapatılır. **Kaldır** düğmesiyle otomatik veya manuel kayıt hemen temizlenebilir.
+
+### SQLite veritabanı
+
+Blacklist ve başarısız giriş sayaçları varsayılan olarak proje klasöründeki `security.sqlite3` dosyasında saklanır. Sunucu yeniden başlatıldığında aktif engeller korunur. SQLite çalışma sırasında `security.sqlite3-wal` ve `security.sqlite3-shm` yardımcı dosyalarını oluşturabilir. Bu dosyalar `.gitignore` kapsamındadır ve Git deposuna gönderilmez.
+
+Veritabanı iki tablo içerir:
+
+- `blacklist`: Aktif otomatik ve manuel IP engelleri
+- `login_failures`: Henüz engel sınırına ulaşmamış başarısız giriş sayaçları
+
+Süresi dolan otomatik blacklist kayıtları periyodik olarak temizlenir.
+
+### Koruma ayarları
+
+Koruma değerleri `.env` dosyasından değiştirilebilir:
+
+```env
+FAIL2BAN_MAX_ATTEMPTS=5
+FAIL2BAN_FIND_TIME_MINUTES=10
+FAIL2BAN_BAN_TIME_MINUTES=60
+SECURITY_DB_PATH=security.sqlite3
+```
+
+| Ayar | Açıklama |
+|---|---|
+| `FAIL2BAN_MAX_ATTEMPTS` | IP engellenmeden önce izin verilen başarısız MQTT giriş sayısı. |
+| `FAIL2BAN_FIND_TIME_MINUTES` | Başarısız girişlerin birlikte sayılacağı zaman aralığı. |
+| `FAIL2BAN_BAN_TIME_MINUTES` | Otomatik blacklist kaydının geçerli kalacağı süre. |
+| `SECURITY_DB_PATH` | SQLite veritabanı yolu. Göreli yollar proje klasörüne göre çözülür. |
+
+Değerleri değiştirdikten sonra sunucuyu yeniden başlatın. Web yönetim panelini yalnızca güvenilir ağlarda erişilebilir tutun; blacklist ekleme ve kaldırma işlemleri panel üzerinden gerçekleştirildiği için panel portu internete doğrudan açılmamalıdır.
 
 ## Gereksinimler
 
@@ -74,6 +125,20 @@ MQTT_HOST=192.168.1.100
 
 MQTT_USERNAME=admin
 MQTT_PASSWORD=guclu-bir-parola
+
+MQTT_TLS_ENABLED=0
+MQTT_TLS_PORT=8883
+MQTT_TLS_KEY=certs/server-key.pem
+MQTT_TLS_CERT=certs/server-cert.pem
+MQTT_TLS_CA=certs/ca-cert.pem
+MQTT_TLS_REQUEST_CLIENT_CERT=0
+MQTT_TLS_CLIENT_CERT=certs/client-cert.pem
+MQTT_TLS_CLIENT_KEY=certs/client-key.pem
+
+FAIL2BAN_MAX_ATTEMPTS=5
+FAIL2BAN_FIND_TIME_MINUTES=10
+FAIL2BAN_BAN_TIME_MINUTES=60
+SECURITY_DB_PATH=security.sqlite3
 ```
 
 | Ayar | Açıklama |
@@ -84,6 +149,18 @@ MQTT_PASSWORD=guclu-bir-parola
 | `MQTT_HOST` | Yalnızca `npm run client` test istemcisinin bağlanacağı sunucu IP'si. |
 | `MQTT_USERNAME` | Test istemcisinin kullanıcı adı. `users.json` içinde bulunmalıdır. |
 | `MQTT_PASSWORD` | Test istemcisinin parolası. `users.json` ile aynı olmalıdır. |
+| `MQTT_TLS_ENABLED` | `1` olduğunda TLS MQTT sunucusunu ve test istemcisinde `mqtts://` bağlantısını etkinleştirir. |
+| `MQTT_TLS_PORT` | TLS MQTT portu. Varsayılan `8883`. |
+| `MQTT_TLS_KEY` | MQTT sunucusunun PEM biçimindeki private key dosyası. |
+| `MQTT_TLS_CERT` | MQTT sunucusunun PEM biçimindeki sertifika dosyası. |
+| `MQTT_TLS_CA` | Sunucu veya karşılıklı TLS doğrulamasında kullanılacak CA sertifikası. |
+| `MQTT_TLS_REQUEST_CLIENT_CERT` | `1` olduğunda bağlanan cihazdan geçerli istemci sertifikası ister. |
+| `MQTT_TLS_CLIENT_CERT` | `npm run client` için isteğe bağlı istemci sertifikası. |
+| `MQTT_TLS_CLIENT_KEY` | Test istemcisi sertifikasına ait private key. |
+| `FAIL2BAN_MAX_ATTEMPTS` | Bir IP engellenmeden önce izin verilen başarısız giriş sayısı. |
+| `FAIL2BAN_FIND_TIME_MINUTES` | Başarısız girişlerin sayılacağı zaman aralığı. |
+| `FAIL2BAN_BAN_TIME_MINUTES` | Otomatik IP engelinin dakika cinsinden süresi. |
+| `SECURITY_DB_PATH` | Blacklist bilgilerinin saklanacağı SQLite dosyasının yolu. |
 
 Sunucu bilgisayarın IP adresini Windows'ta `ipconfig` komutuyla öğrenebilirsiniz. Örneğin sunucu IP adresi `192.168.1.100` ise `MQTT_HOST=192.168.1.100` kullanın.
 
@@ -127,6 +204,7 @@ Varsayılan erişim adresleri:
 - Aynı bilgisayardan panel: `http://localhost:3000`
 - Ağdaki başka bir bilgisayardan panel: `http://SUNUCU_IP:3000`
 - MQTT broker: `mqtt://SUNUCU_IP:1883`
+- TLS MQTT broker etkinse: `mqtts://SUNUCU_IP:8883`
 
 Programı durdurmak için terminalde `Ctrl+C` tuşlarına basın.
 
@@ -136,6 +214,7 @@ Diğer cihazlar bağlanamıyorsa PowerShell'i **Yönetici olarak** açıp gerekl
 
 ```powershell
 New-NetFirewallRule -DisplayName "NetRelay MQTT 1883" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+New-NetFirewallRule -DisplayName "NetRelay MQTT TLS 8883" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow
 New-NetFirewallRule -DisplayName "NetRelay Web 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
 ```
 
@@ -149,12 +228,238 @@ NetRelay cihazının `/mqtt` ayar sayfasını açın ve şu değerleri girin:
 |---|---|
 | MQTT Server | Bu programın çalıştığı bilgisayarın IP adresi |
 | MQTT Port | `1883` veya `.env` içindeki `MQTT_PORT` |
+| MQTT TLS | TLS bağlantısı kullanılacaksa açık |
+| MQTT TLS Port | `8883` veya `.env` içindeki `MQTT_TLS_PORT` |
+| Sunucu CA Sertifikası | Sunucu sertifikasını imzalayan CA'nın PEM içeriği |
+| İstemci Sertifikası | Karşılıklı TLS etkinse cihaza ait PEM sertifika |
+| İstemci Private Key | İstemci sertifikasına ait PEM private key |
 | MQTT Kullanıcı | `users.json` içindeki bir kullanıcı adı |
 | MQTT Şifre | Aynı kullanıcıya ait parola |
 | MQTT İstemci Modu | Açık |
 | Client ID | Her cihaz için benzersiz kimlik; örneğin `1012` |
 
 Ayarları kaydettikten sonra gerekirse cihazı yeniden başlatın. Bağlantı kurulduğunda cihaz web panelindeki çevrimiçi cihazlar bölümünde görünür.
+
+## MQTT TLS yapılandırması
+
+TLS sunucusunu etkinleştirmek için sunucu sertifikası ve private key dosyalarını `certs` klasörüne yerleştirip `.env` içinde `MQTT_TLS_ENABLED=1` yapın. Sunucu normal MQTT portu `1883` ile TLS portu `8883` üzerinde aynı anda çalışır. Tüm cihazlar TLS'e geçirildikten sonra `1883` portunu güvenlik duvarından kapatabilirsiniz.
+
+NetRelay cihazında **MQTT TLS** açıldığında **Sunucu CA Sertifikası** zorunludur. Cihaz sertifikadaki alan adı veya IP adresiyle MQTT sunucusuna bağlanmalıdır. Örneğin cihaz `192.168.1.50` adresini kullanıyorsa sunucu sertifikasının Subject Alternative Name alanında `IP:192.168.1.50` bulunmalıdır.
+
+Yalnızca sunucu doğrulaması için:
+
+```env
+MQTT_TLS_ENABLED=1
+MQTT_TLS_REQUEST_CLIENT_CERT=0
+```
+
+Bu kullanımda NetRelay tarafında CA sertifikası girilir; istemci sertifikası ve private key boş bırakılır.
+
+Karşılıklı TLS için:
+
+```env
+MQTT_TLS_ENABLED=1
+MQTT_TLS_REQUEST_CLIENT_CERT=1
+MQTT_TLS_CA=certs/ca-cert.pem
+```
+
+Karşılıklı TLS kullanılırken her NetRelay cihazına istemci sertifikası ve ona ait private key birlikte girilmelidir. Alanlardan yalnızca biri girilirse cihaz ayarı kabul edilmez. Private key dosyalarını Git deposuna göndermeyin ve yetkisiz kişilerle paylaşmayın.
+
+> TLS sertifika doğrulaması için NetRelay cihazının tarih ve saati doğru olmalıdır. MQTT bağlantısını kurmadan önce RTC/NTP zamanının güncel olduğundan emin olun.
+
+### CA, sunucu ve istemci sertifikalarını oluşturma
+
+Aşağıdaki örnek OpenSSL komutları kendi yerel sertifika otoritenizi (CA), MQTT sunucu sertifikanızı ve bir NetRelay cihazına ait istemci sertifikasını oluşturur. Komutları proje klasöründe PowerShell veya OpenSSL çalıştırabilen başka bir terminalde uygulayın.
+
+> Örneklerdeki `192.168.1.100` değerini MQTT sunucusunun gerçek IP adresiyle değiştirin. NetRelay cihazının **MQTT Server** alanına hangi IP veya alan adı yazılacaksa sunucu sertifikasının SAN alanında aynı değer bulunmalıdır.
+
+#### 1. Sertifika klasörünü oluşturun
+
+```powershell
+New-Item -ItemType Directory -Force certs
+Set-Location certs
+```
+
+`certs` altındaki private key ve PEM dosyaları `.gitignore` kapsamındadır.
+
+#### 2. Kök CA oluşturun
+
+```powershell
+openssl genrsa -out ca-key.pem 4096
+
+openssl req -x509 -new -nodes `
+  -key ca-key.pem `
+  -sha256 `
+  -days 3650 `
+  -out ca-cert.pem `
+  -subj "/C=TR/O=NetRelay/CN=NetRelay Root CA"
+```
+
+Oluşan dosyalar:
+
+- `ca-key.pem`: Yeni sertifikaları imzalayan CA private key. Çok gizli tutulmalı ve hiçbir NetRelay cihazına kopyalanmamalıdır.
+- `ca-cert.pem`: Sunucu ve cihazlarda güvenilen kök sertifika olarak kullanılabilir.
+
+#### 3. MQTT sunucu sertifikasını oluşturun
+
+Sunucu private key ve sertifika isteğini oluşturun:
+
+```powershell
+openssl genrsa -out server-key.pem 2048
+
+openssl req -new `
+  -key server-key.pem `
+  -out server.csr `
+  -subj "/C=TR/O=NetRelay/CN=mqtt.netrelay.local"
+```
+
+`server-ext.cnf` adında bir dosya oluşturun:
+
+```ini
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:mqtt.netrelay.local,IP:192.168.1.100
+```
+
+Yalnızca IP adresi kullanılacaksa `DNS:` bölümü kaldırılabilir. Birden fazla sunucu adresi virgülle eklenebilir:
+
+```ini
+subjectAltName=DNS:mqtt.netrelay.local,IP:192.168.1.100,IP:10.0.0.20
+```
+
+Sunucu sertifikasını CA ile imzalayın:
+
+```powershell
+openssl x509 -req `
+  -in server.csr `
+  -CA ca-cert.pem `
+  -CAkey ca-key.pem `
+  -CAcreateserial `
+  -out server-cert.pem `
+  -days 825 `
+  -sha256 `
+  -extfile server-ext.cnf
+```
+
+#### 4. NetRelay istemci sertifikası oluşturun
+
+Karşılıklı TLS kullanılmayacaksa bu adım atlanabilir. Karşılıklı TLS için her cihaza ayrı private key ve sertifika oluşturulması önerilir. Aşağıdaki örnekte cihaz kimliği `netrelay-device-1000` olarak kullanılmıştır:
+
+```powershell
+openssl genrsa -out client-1000-key.pem 2048
+
+openssl req -new `
+  -key client-1000-key.pem `
+  -out client-1000.csr `
+  -subj "/C=TR/O=NetRelay/CN=netrelay-device-1000"
+```
+
+`client-ext.cnf` dosyasını oluşturun:
+
+```ini
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth
+```
+
+İstemci sertifikasını CA ile imzalayın:
+
+```powershell
+openssl x509 -req `
+  -in client-1000.csr `
+  -CA ca-cert.pem `
+  -CAkey ca-key.pem `
+  -CAserial ca-cert.srl `
+  -out client-1000-cert.pem `
+  -days 825 `
+  -sha256 `
+  -extfile client-ext.cnf
+```
+
+Her yeni cihaz için `1000` ve `netrelay-device-1000` değerlerini değiştirerek bu adımı tekrarlayın. Cihazların aynı private key'i paylaşması önerilmez.
+
+#### 5. Sertifikaları doğrulayın
+
+```powershell
+openssl verify -CAfile ca-cert.pem server-cert.pem
+openssl verify -CAfile ca-cert.pem client-1000-cert.pem
+openssl x509 -in server-cert.pem -noout -subject -issuer -dates -ext subjectAltName
+```
+
+İlk iki komutun sonucu `OK` olmalıdır. Son komutta NetRelay cihazının bağlanacağı IP veya alan adının SAN listesinde bulunduğunu kontrol edin.
+
+#### 6. MQTT sunucusunu yapılandırın
+
+Proje kök dizinine dönüp `.env` dosyasını düzenleyin:
+
+```env
+MQTT_TLS_ENABLED=1
+MQTT_TLS_PORT=8883
+MQTT_TLS_KEY=certs/server-key.pem
+MQTT_TLS_CERT=certs/server-cert.pem
+MQTT_TLS_CA=certs/ca-cert.pem
+MQTT_TLS_REQUEST_CLIENT_CERT=1
+```
+
+Yalnızca sunucu sertifikası doğrulanacaksa:
+
+```env
+MQTT_TLS_REQUEST_CLIENT_CERT=0
+```
+
+Sunucuyu yeniden başlatın:
+
+```powershell
+npm start
+```
+
+Başlangıç logunda `MQTT TLS server çalışıyor: 0.0.0.0:8883` mesajı görülmelidir.
+
+#### 7. NetRelay cihazını yapılandırın
+
+NetRelay cihazında `http://CIHAZ_IP/mqtt` sayfasını açın ve şu değerleri girin:
+
+| NetRelay alanı | Girilecek içerik |
+|---|---|
+| MQTT Server | Sunucu sertifikasının SAN alanındaki IP veya alan adı |
+| MQTT TLS | Açık |
+| MQTT TLS Port | `8883` |
+| Sunucu CA Sertifikası | `ca-cert.pem` dosyasının başlangıç ve bitiş satırları dahil tam içeriği |
+| İstemci Sertifikası | Karşılıklı TLS için `client-1000-cert.pem` dosyasının tam içeriği |
+| İstemci Private Key | Karşılıklı TLS için `client-1000-key.pem` dosyasının tam içeriği |
+| MQTT İstemci Modu | Açık |
+
+PEM alanlarına aşağıdaki başlangıç ve bitiş satırları dahil edilmelidir:
+
+```text
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+```
+
+Private key için:
+
+```text
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+```
+
+OpenSSL bazı durumlarda `-----BEGIN RSA PRIVATE KEY-----` biçimi oluşturabilir; firmware bu PEM biçimini de kabul eder.
+
+### Hangi dosya nereye konulacak?
+
+| Dosya | MQTT sunucusu | NetRelay cihazı | Gizli mi? |
+|---|---:|---:|---:|
+| `ca-key.pem` | Yalnızca yeni sertifika imzalarken | Hayır | Evet, en kritik anahtar |
+| `ca-cert.pem` | `MQTT_TLS_CA` | Sunucu CA Sertifikası | Hayır |
+| `server-key.pem` | `MQTT_TLS_KEY` | Hayır | Evet |
+| `server-cert.pem` | `MQTT_TLS_CERT` | Hayır | Hayır |
+| `client-1000-key.pem` | Yalnızca test istemcisinde gerekebilir | İstemci Private Key | Evet |
+| `client-1000-cert.pem` | Doğrudan gerekmez; CA ile doğrulanır | İstemci Sertifikası | Hayır |
+
+CSR ve uzantı dosyaları sertifikalar üretildikten sonra çalışma sırasında gerekli değildir. `ca-key.pem`, `server-key.pem` ve istemci private key dosyalarının erişim izinlerini sınırlandırın ve güvenli bir yedeğini alın.
 
 ## Web panelinin kullanımı
 
