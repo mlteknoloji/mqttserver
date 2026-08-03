@@ -7,8 +7,24 @@
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
+    <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menüyü aç" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <span>NETRELAY</span>
+        <strong>MQTT Server</strong>
+      </div>
+      <nav class="sidebar-nav" aria-label="Ana menü">
+        <a class="active" href="#dashboard"><span>⌂</span> Genel Bakış</a>
+        <a href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a>
+        <a href="#relay-command"><span>⇄</span> Röle Komutu</a>
+        <a href="#mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
+        <a href="#server-logs"><span>≡</span> Sunucu Logları</a>
+      </nav>
+      <div class="sidebar-footer">NetRelay MQTT yönetimi</div>
+    </aside>
     <main class="container">
-      <header>
+      <header id="dashboard" class="page-section">
         <div>
           <p class="eyebrow">CANLI YÖNETİM EKRANI</p>
           <h1>MQTT Sunucu Paneli</h1>
@@ -16,7 +32,7 @@
         <div id="socket-status" class="status offline">Bağlanıyor...</div>
       </header>
 
-      <section class="card panel">
+      <section id="online-clients" class="card panel page-section">
         <div class="panel-title">
           <h2>Çevrimiçi kullanıcılar</h2>
         </div>
@@ -54,7 +70,7 @@
         </div>
       </section>
 
-      <section class="card panel relay-panel">
+      <section id="relay-command" class="card panel relay-panel page-section">
         <div class="panel-title">
           <h2>NetRelay komutu gönder</h2>
           <span>JSON / MQTT</span>
@@ -114,7 +130,7 @@
         </div>
       </section>
 
-      <section class="card panel">
+      <section id="mqtt-blacklist" class="card panel page-section">
         <div class="panel-title">
           <h2>MQTT Blacklist</h2>
           <span>SQLite üzerinde kalıcı</span>
@@ -142,10 +158,19 @@
         </div>
       </section>
 
-      <section class="card panel">
+      <section id="server-logs" class="card panel page-section">
         <div class="panel-title">
           <h2>Sunucu logları</h2>
-          <span>Son 200 kayıt</span>
+          <div class="log-controls">
+            <span>Son 200 kayıt</span>
+            <label class="toggle-label">
+              <span>Debug Log</span>
+              <span class="toggle-switch">
+                <input id="debug-log-enabled" type="checkbox">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+          </div>
         </div>
         <div id="logs" class="logs">
           <% logs.forEach((log) => { %>
@@ -174,7 +199,43 @@
       const blacklistList = document.getElementById('blacklist-list');
       const emptyBlacklist = document.getElementById('empty-blacklist');
       const blacklistResult = document.getElementById('blacklist-result');
+      const menuToggle = document.getElementById('menu-toggle');
+      const sidebar = document.getElementById('sidebar');
+      const sidebarOverlay = document.getElementById('sidebar-overlay');
+      const menuLinks = [...document.querySelectorAll('.sidebar-nav a')];
+      const debugLogEnabled = document.getElementById('debug-log-enabled');
       let socket;
+
+      function setMenuOpen(open) {
+        document.body.classList.toggle('menu-open', open);
+        menuToggle.setAttribute('aria-expanded', String(open));
+        menuToggle.setAttribute('aria-label', open ? 'Menüyü kapat' : 'Menüyü aç');
+        menuToggle.textContent = open ? '×' : '☰';
+      }
+
+      menuToggle.addEventListener('click', () => setMenuOpen(!document.body.classList.contains('menu-open')));
+      sidebarOverlay.addEventListener('click', () => setMenuOpen(false));
+      menuLinks.forEach((link) => link.addEventListener('click', () => setMenuOpen(false)));
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') setMenuOpen(false);
+      });
+
+      debugLogEnabled.addEventListener('change', () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          debugLogEnabled.checked = !debugLogEnabled.checked;
+          return;
+        }
+        socket.send(JSON.stringify({ type: 'debugLoggingSet', enabled: debugLogEnabled.checked }));
+      });
+
+      const sectionObserver = new IntersectionObserver((entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        menuLinks.forEach((link) => link.classList.toggle('active', link.hash === `#${visible.target.id}`));
+      }, { rootMargin: '-15% 0px -65% 0px', threshold: [0, 0.1, 0.5] });
+      document.querySelectorAll('.page-section').forEach((section) => sectionObserver.observe(section));
 
       function updatePayload() {
         const selectedTarget = targetClientElement.selectedOptions[0];
@@ -258,6 +319,7 @@
       }
 
       function render(state) {
+        debugLogEnabled.checked = state.debugLoggingEnabled === true;
         onlineCount.textContent = state.onlineClients.length;
         onlineList.replaceChildren();
         emptyUsers.classList.toggle('hidden', state.onlineClients.length > 0);

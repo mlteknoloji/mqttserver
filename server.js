@@ -36,6 +36,7 @@ const security = createSecurityStore({
 const onlineClients = new Map();
 const logs = [];
 let wss;
+let debugLoggingEnabled = false;
 
 function getLocalIpAddresses() {
   return Object.values(os.networkInterfaces())
@@ -179,6 +180,7 @@ function getState() {
     type: 'state',
     onlineClients: Array.from(onlineClients.values()),
     blacklist: security.listBlacklist(),
+    debugLoggingEnabled,
     logs
   };
 }
@@ -206,11 +208,18 @@ function addLog(type, message) {
   broadcastState();
 }
 
+function addDebugLog(message) {
+  if (debugLoggingEnabled) addLog('DEBUG', message);
+}
+
 async function startServer() {
   const users = loadUsers();
   const broker = await Aedes.createBroker({
     authenticate(client, username, password, callback) {
       const remoteIp = security.normalizeIp(client.conn?.remoteAddress);
+      addDebugLog(
+        `MQTT doğrulama başladı | IP: ${remoteIp || 'bilinmiyor'} | Client ID: ${client.id || 'bilinmiyor'} | TLS: ${client.conn?.encrypted ? 'evet' : 'hayır'}`
+      );
       if (security.isBlacklisted(remoteIp)) {
         addLog('ENGELLENDİ', `Blacklisted IP MQTT bağlantısı reddedildi: ${remoteIp}`);
         callback(null, false);
@@ -224,7 +233,9 @@ async function startServer() {
       if (isValid) {
         client.authenticatedUsername = enteredUsername;
         security.clearFailures(remoteIp);
+        addDebugLog(`MQTT doğrulama başarılı | IP: ${remoteIp} | Kullanıcı: ${enteredUsername}`);
       } else {
+        addDebugLog(`MQTT doğrulama başarısız | IP: ${remoteIp} | Kullanıcı: ${enteredUsername || 'boş'}`);
         const result = security.recordFailure(remoteIp);
         if (result.banned) {
           addLog(
@@ -287,6 +298,12 @@ async function startServer() {
       let request;
       try {
         request = JSON.parse(rawMessage.toString());
+
+        if (request.type === 'debugLoggingSet') {
+          debugLoggingEnabled = request.enabled === true;
+          addLog('SİSTEM', `Ayrıntılı bağlantı logları ${debugLoggingEnabled ? 'açıldı' : 'kapatıldı'}.`);
+          return;
+        }
 
         if (request.type === 'blacklistAdd') {
           const ip = security.addManualBan(request.ip, request.reason);
@@ -427,6 +444,24 @@ async function startServer() {
 
   mqttServer.on('error', (error) => addLog('HATA', `MQTT: ${error.message}`));
   mqttTlsServer?.on('error', (error) => addLog('HATA', `MQTT TLS: ${error.message}`));
+  mqttTlsServer?.on('tlsClientError', (error, socket) => {
+    addDebugLog(
+      `TLS el sıkışma hatası | IP: ${security.normalizeIp(socket.remoteAddress) || 'bilinmiyor'} | Kod: ${error.code || 'yok'} | Mesaj: ${error.message}`
+    );
+  });
+  mqttTlsServer?.on('secureConnection', (socket) => {
+    const cipher = socket.getCipher();
+    const peer = socket.getPeerCertificate();
+    addDebugLog(
+      `TLS el sıkışması başarılı | IP: ${security.normalizeIp(socket.remoteAddress)} | Protokol: ${socket.getProtocol()} | Şifre: ${cipher?.name || 'bilinmiyor'} | İstemci sertifikası: ${peer?.subject?.CN || 'yok'} | Yetkili: ${socket.authorized ? 'evet' : `hayır (${socket.authorizationError || 'neden yok'})`}`
+    );
+  });
+  broker.on('clientError', (client, error) => {
+    addDebugLog(`MQTT istemci hatası | Client ID: ${client?.id || 'bilinmiyor'} | Mesaj: ${error.message}`);
+  });
+  broker.on('connectionError', (client, error) => {
+    addDebugLog(`MQTT bağlantı hatası | Client ID: ${client?.id || 'bilinmiyor'} | Mesaj: ${error.message}`);
+  });
   webServer.on('error', (error) => addLog('HATA', `Web: ${error.message}`));
 
   mqttServer.listen(MQTT_PORT, HOST, () => {
