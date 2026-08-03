@@ -7,9 +7,14 @@ const http = require('node:http');
 const tls = require('node:tls');
 const os = require('node:os');
 const express = require('express');
+const multer = require('multer');
 const { WebSocketServer, WebSocket } = require('ws');
 const { Aedes } = require('aedes');
 const { createSecurityStore } = require('./security');
+const { createScheduledTaskStore } = require('./scheduled-tasks');
+const { createEmailNotificationStore } = require('./email-notifications');
+const { createWebAuthStore } = require('./web-auth');
+const { createFirmwareManager, MAX_FIRMWARE_SIZE } = require('./firmware-manager');
 
 const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
 const WEB_PORT = Number(process.env.WEB_PORT) || 3000;
@@ -17,6 +22,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const MQTT_TLS_ENABLED = process.env.MQTT_TLS_ENABLED === '1';
 const MQTT_TLS_PORT = Number(process.env.MQTT_TLS_PORT) || 8883;
 const MQTT_TLS_REQUEST_CLIENT_CERT = process.env.MQTT_TLS_REQUEST_CLIENT_CERT === '1';
+const FIRMWARE_PUBLIC_BASE_URL = String(process.env.FIRMWARE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const USERS_FILE = path.join(__dirname, 'users.json');
 const MAX_LOGS = 200;
 const FAIL2BAN_MAX_ATTEMPTS = Number(process.env.FAIL2BAN_MAX_ATTEMPTS) || 5;
@@ -32,6 +38,11 @@ const security = createSecurityStore({
   findTimeMs: FAIL2BAN_FIND_TIME_MINUTES * 60 * 1000,
   banTimeMs: FAIL2BAN_BAN_TIME_MINUTES * 60 * 1000
 });
+const scheduledTasks = createScheduledTaskStore({ databasePath: SECURITY_DB_PATH });
+const emailNotifications = createEmailNotificationStore({ databasePath: SECURITY_DB_PATH });
+const webAuth = createWebAuthStore({ databasePath: SECURITY_DB_PATH });
+const firmwareManager = createFirmwareManager({ databasePath: SECURITY_DB_PATH, storageDirectory: path.join(__dirname, 'firmware-files') });
+const firmwareUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FIRMWARE_SIZE } });
 
 const onlineClients = new Map();
 const logs = [];
@@ -120,11 +131,14 @@ function parseNetRelayEvent(message, client, topic) {
         topic: String(event.topic || ''),
         subtopic: String(event.subtopic || ''),
         deviceUptimeMs: Number(event.deviceUptimeMs) || 0,
+        voltage: Number.isFinite(Number(event.voltage)) ? Number(event.voltage) : null,
+        temperature: Number.isFinite(Number(event.temperature)) ? Number(event.temperature) : null,
         relays: event.relays,
         inputs: event.inputs.map((input) => ({
           input: input.input,
           name: String(input.name || `input${input.input}`),
-          io: input.io
+          io: input.io,
+          voltage: Number(input.voltage) || 0
         })),
         serverReceivedAt: new Date().toISOString()
       };
@@ -175,22 +189,28 @@ function loadUsers() {
   return users;
 }
 
-function getState() {
+function getState(user) {
+  const can = (permission) => webAuth.hasPermission(user, permission);
   return {
     type: 'state',
-    onlineClients: Array.from(onlineClients.values()),
-    blacklist: security.listBlacklist(),
-    debugLoggingEnabled,
-    logs
+    onlineClients: can('dashboard') || can('relay') || can('schedules') || can('email') ? Array.from(onlineClients.values()) : [],
+    blacklist: can('blacklist') ? security.listBlacklist() : [],
+    scheduledTasks: can('schedules') ? scheduledTasks.list() : [],
+    emailNotifications: can('email') ? emailNotifications.getState() : { settings: {}, monitors: [] },
+    firmwareManagement: can('firmware') ? firmwareManager.getState() : { firmwares: [], jobs: [], maxFirmwareSize: MAX_FIRMWARE_SIZE },
+    debugLoggingEnabled: can('logs') ? debugLoggingEnabled : false,
+    logs: can('logs') ? logs : [],
+    currentUser: user || null,
+    webUsers: user?.role === 'admin' ? webAuth.listUsers() : [],
+    permissionDefinitions: webAuth.permissions
   };
 }
 
 function broadcastState() {
   if (!wss) return;
 
-  const message = JSON.stringify(getState());
   for (const socket of wss.clients) {
-    if (socket.readyState === WebSocket.OPEN) socket.send(message);
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(getState(socket.authUser)));
   }
 }
 
@@ -250,6 +270,45 @@ async function startServer() {
     }
   });
 
+  function publishRelayCommand(target, relays, position) {
+    const payload = JSON.stringify({
+      type: 'netrelay', command: 'set', targetUsername: target.username,
+      relays, position, delay: 0
+    });
+    return new Promise((resolve, reject) => broker.publish({
+      cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload),
+      qos: 0, retain: false, dup: false
+    }, (error) => error ? reject(error) : resolve(payload)));
+  }
+
+  scheduledTasks.start(async (task) => {
+    const target = [...onlineClients.values()].find((client) => client.username === task.targetUsername);
+    if (!target) {
+      addLog('ZAMANLAYICI', `“${task.name}” çalışmadı: ${task.targetUsername} çevrimdışı.`);
+      setImmediate(broadcastState);
+      return 'Hedef cihaz çevrimdışı';
+    }
+    const oldPositions = task.relays.map((relay) => ({ relay, position: target.relays?.[relay - 1] }));
+    const restorable = oldPositions.filter((item) => item.position === 0 || item.position === 1);
+    await publishRelayCommand(target, task.relays, task.position);
+    addLog('ZAMANLAYICI', `“${task.name}” çalıştı | ${task.targetUsername} | Röle: ${task.relays.join(',')} | Konum: ${task.position}`);
+    if (task.restoreSeconds > 0 && restorable.length > 0) {
+      setTimeout(() => {
+        const currentTarget = [...onlineClients.values()].find((client) => client.username === task.targetUsername);
+        if (!currentTarget) return addLog('ZAMANLAYICI', `“${task.name}” geri alma yapılamadı: cihaz çevrimdışı.`);
+        for (const position of [0, 1]) {
+          const relays = restorable.filter((item) => item.position === position).map((item) => item.relay);
+          if (relays.length) publishRelayCommand(currentTarget, relays, position).catch((error) => addLog('HATA', `Zamanlayıcı geri alma: ${error.message}`));
+        }
+        addLog('ZAMANLAYICI', `“${task.name}” röleleri eski konumuna getirildi.`);
+      }, task.restoreSeconds * 1000).unref();
+    }
+    setImmediate(broadcastState);
+    return task.restoreSeconds > 0 && oldPositions.every((item) => item.position !== 0 && item.position !== 1)
+      ? 'Çalıştırıldı; eski röle durumu bilinmediği için geri alma atlandı'
+      : 'Çalıştırıldı';
+  });
+
   const mqttServer = net.createServer(broker.handle);
   let mqttTlsServer;
   if (MQTT_TLS_ENABLED) {
@@ -277,27 +336,133 @@ async function startServer() {
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
+  app.use(express.urlencoded({ extended: false }));
   app.use(express.static(path.join(__dirname, 'public')));
 
+  app.get('/login', (request, response) => {
+    const user = webAuth.fromRequest(request);
+    if (user) return response.redirect(user.mustChangePassword ? '/change-password' : '/');
+    response.render('login', { error: '' });
+  });
+  app.post('/login', (request, response) => {
+    const result = webAuth.login(request.body.username, request.body.password);
+    if (!result) return response.status(401).render('login', { error: 'Kullanıcı adı veya parola yanlış.' });
+    response.setHeader('Set-Cookie', webAuth.cookie(result.token));
+    response.redirect(result.user.mustChangePassword ? '/change-password' : '/');
+  });
+  app.get('/change-password', (request, response) => {
+    const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+    response.render('change-password', { error: '', user });
+  });
+  app.post('/change-password', (request, response) => {
+    const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+    try {
+      if (request.body.newPassword !== request.body.confirmPassword) throw new Error('Yeni parola tekrarı eşleşmiyor.');
+      webAuth.changePassword(user.id, request.body.currentPassword, request.body.newPassword);
+      response.setHeader('Set-Cookie', webAuth.clearCookie); response.redirect('/login?changed=1');
+    } catch (error) { response.status(400).render('change-password', { error: error.message, user }); }
+  });
+  app.post('/logout', (request, response) => {
+    webAuth.logout(request); response.setHeader('Set-Cookie', webAuth.clearCookie); response.redirect('/login');
+  });
+  app.get('/firmware/download/:token', (request, response) => {
+    const download = firmwareManager.resolveDownload(request.params.token);
+    if (!download) return response.status(404).send('Firmware bağlantısı geçersiz veya süresi dolmuş.');
+    response.setHeader('Content-Type', 'application/octet-stream');
+    response.setHeader('Content-Length', download.size);
+    response.setHeader('X-Firmware-SHA256', download.sha256);
+    response.sendFile(download.path);
+  });
+  app.post('/api/firmwares', firmwareUpload.single('firmware'), (request, response) => {
+    const user = webAuth.fromRequest(request);
+    if (!user || user.mustChangePassword) return response.status(401).json({ error: 'Oturum gerekli.' });
+    if (!webAuth.hasPermission(user, 'firmware')) return response.status(403).json({ error: 'Firmware yetkisi gerekli.' });
+    try { const id = firmwareManager.addFirmware(request.file, request.body); broadcastState(); response.json({ id, message: 'Firmware yüklendi.' }); }
+    catch (error) { response.status(400).json({ error: error.message }); }
+  });
+
   app.get('/', (request, response) => {
+    const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+    if (user.mustChangePassword) return response.redirect('/change-password');
     response.render('index', {
       onlineClients: Array.from(onlineClients.values()),
       logs,
       mqttAddresses: getLocalIpAddresses().flatMap((ip) => [
         `mqtt://${ip}:${MQTT_PORT}`,
         ...(MQTT_TLS_ENABLED ? [`mqtts://${ip}:${MQTT_TLS_PORT}`] : [])
-      ])
+      ]),
+      currentUser: user
     });
   });
+  function renderProtectedPage(view, permission) {
+    return (request, response) => {
+      const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+      if (user.mustChangePassword) return response.redirect('/change-password');
+      if (!webAuth.hasPermission(user, permission)) return response.status(403).send('Bu sayfaya erişim yetkiniz yok.');
+      response.render(view, { currentUser: user });
+    };
+  }
+  app.get('/scheduled-tasks', renderProtectedPage('scheduled-tasks', 'schedules'));
+  app.get('/device-io', renderProtectedPage('device-io', 'dashboard'));
+  app.get('/firmware-management', renderProtectedPage('firmware-management', 'firmware'));
+  app.get('/mqtt-blacklist', renderProtectedPage('mqtt-blacklist', 'blacklist'));
 
-  wss = new WebSocketServer({ server: webServer });
-  wss.on('connection', (socket) => {
-    socket.send(JSON.stringify(getState()));
+  wss = new WebSocketServer({ server: webServer, verifyClient(info, done) {
+    const user = webAuth.fromRequest(info.req);
+    if (!user || user.mustChangePassword) return done(false, 401, 'Oturum gerekli');
+    info.req.authUser = user; done(true);
+  }});
+  wss.on('connection', (socket, request) => {
+    socket.authUser = request.authUser;
+    socket.publicBaseUrl = `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
+    socket.send(JSON.stringify(getState(socket.authUser)));
 
-    socket.on('message', (rawMessage) => {
+    socket.on('message', async (rawMessage) => {
       let request;
       try {
         request = JSON.parse(rawMessage.toString());
+        const requiredPermissions = {
+          publish: 'relay', scheduledTaskSave: 'schedules', scheduledTaskEnabled: 'schedules', scheduledTaskRemove: 'schedules',
+          firmwareUpdateStart: 'firmware', firmwareRemove: 'firmware',
+          emailSettingsSave: 'email', emailMonitorSave: 'email', emailMonitorEnabled: 'email', emailMonitorRemove: 'email', emailSendTest: 'email',
+          blacklistAdd: 'blacklist', blacklistRemove: 'blacklist', debugLoggingSet: 'logs', webUserSave: 'users', webUserRemove: 'users'
+        };
+        const requiredPermission = requiredPermissions[request.type];
+        if (requiredPermission && !webAuth.hasPermission(socket.authUser, requiredPermission)) throw new Error('Bu işlem için yetkiniz yok.');
+
+        if (request.type === 'webUserSave') {
+          const id = webAuth.saveUser(request.user || {}, socket.authUser);
+          socket.send(JSON.stringify({ type: 'webUserSuccess', message: `Kullanıcı kaydedildi (#${id}).` }));
+          broadcastState(); return;
+        }
+        if (request.type === 'webUserRemove') {
+          webAuth.removeUser(request.id, socket.authUser);
+          socket.send(JSON.stringify({ type: 'webUserSuccess', message: 'Kullanıcı silindi.' }));
+          broadcastState(); return;
+        }
+        if (request.type === 'firmwareRemove') {
+          firmwareManager.removeFirmware(request.id); broadcastState(); return;
+        }
+        if (request.type === 'firmwareUpdateStart') {
+          const ids = [...new Set(Array.isArray(request.targetClientIds) ? request.targetClientIds.map(String) : [String(request.targetClientId || '')])].filter(Boolean);
+          if (!ids.length) throw new Error('En az bir hedef cihaz seçin.');
+          const targets = ids.map((id) => onlineClients.get(id));
+          if (targets.some((target) => !target)) throw new Error('Seçilen cihazlardan biri çevrimdışı.');
+          if (new Set(targets.map((target) => target.username)).size !== targets.length) throw new Error('Aynı MQTT kullanıcısına ait birden fazla bağlantı birlikte seçilemez.');
+          for (const target of targets) {
+            const created = firmwareManager.createJob(request.firmwareId, target);
+            const command = JSON.stringify({ type: 'netrelay', command: 'firmware_update', targetUsername: target.username,
+              jobId: created.job.id, version: created.firmware.version, hardware: created.firmware.hardware,
+              url: `${FIRMWARE_PUBLIC_BASE_URL || socket.publicBaseUrl}/firmware/download/${created.token}`, size: created.firmware.size, sha256: created.firmware.sha256 });
+            broker.publish({ cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(command), qos: 1, retain: false, dup: false }, (error) => {
+              if (error) firmwareManager.failJob(created.job.id, error.message);
+              else addLog('FIRMWARE', `${target.username} için ${created.firmware.version} OTA komutu gönderildi.`);
+              broadcastState();
+            });
+          }
+          socket.send(JSON.stringify({ type: 'firmwareSuccess', message: `${targets.length} cihaz için OTA işlemi başlatıldı.` }));
+          return;
+        }
 
         if (request.type === 'debugLoggingSet') {
           debugLoggingEnabled = request.enabled === true;
@@ -320,6 +485,54 @@ async function startServer() {
           if (!security.removeBan(ip)) throw new Error('Blacklist kaydı bulunamadı.');
           addLog('BLACKLIST', `IP ${ip} blacklist listesinden kaldırıldı.`);
           socket.send(JSON.stringify({ type: 'blacklistSuccess', message: `IP ${ip} kaldırıldı.` }));
+          return;
+        }
+
+        if (request.type === 'scheduledTaskSave') {
+          const id = scheduledTasks.save(request.task || {});
+          addLog('ZAMANLAYICI', `Zamanlanmış görev kaydedildi: #${id}`);
+          socket.send(JSON.stringify({ type: 'scheduledTaskSuccess', message: 'Görev kaydedildi.' }));
+          broadcastState();
+          return;
+        }
+        if (request.type === 'scheduledTaskEnabled') {
+          scheduledTasks.setEnabled(request.id, request.enabled === true);
+          addLog('ZAMANLAYICI', `Görev #${Number(request.id)} ${request.enabled ? 'etkinleştirildi' : 'devre dışı bırakıldı'}.`);
+          broadcastState();
+          return;
+        }
+        if (request.type === 'scheduledTaskRemove') {
+          scheduledTasks.remove(request.id);
+          addLog('ZAMANLAYICI', `Görev #${Number(request.id)} silindi.`);
+          broadcastState();
+          return;
+        }
+
+        if (request.type === 'emailSettingsSave') {
+          emailNotifications.saveSettings(request.settings || {});
+          socket.send(JSON.stringify({ type: 'emailNotificationSuccess', message: 'E-posta ayarları kaydedildi.' }));
+          broadcastState();
+          return;
+        }
+        if (request.type === 'emailMonitorSave') {
+          emailNotifications.saveMonitor(request.monitor || {});
+          socket.send(JSON.stringify({ type: 'emailNotificationSuccess', message: 'Cihaz izleme ayarı kaydedildi.' }));
+          broadcastState();
+          return;
+        }
+        if (request.type === 'emailMonitorEnabled') {
+          emailNotifications.setMonitorEnabled(request.username, request.enabled === true);
+          broadcastState();
+          return;
+        }
+        if (request.type === 'emailMonitorRemove') {
+          emailNotifications.removeMonitor(request.username);
+          broadcastState();
+          return;
+        }
+        if (request.type === 'emailSendTest') {
+          await emailNotifications.sendTest();
+          socket.send(JSON.stringify({ type: 'emailNotificationSuccess', message: 'Test e-postası gönderildi.' }));
           return;
         }
 
@@ -372,13 +585,14 @@ async function startServer() {
           }
         );
       } catch (error) {
-        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : 'publishError';
+        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : request?.type?.startsWith('scheduledTask') ? 'scheduledTaskError' : request?.type?.startsWith('email') ? 'emailNotificationError' : request?.type?.startsWith('webUser') ? 'webUserError' : request?.type?.startsWith('firmware') ? 'firmwareError' : 'publishError';
         socket.send(JSON.stringify({ type, message: error.message }));
       }
     });
   });
 
   broker.on('clientReady', (client) => {
+    const usernameWasOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
     onlineClients.set(client.id, {
       clientId: client.id,
       username: client.authenticatedUsername,
@@ -395,6 +609,10 @@ async function startServer() {
       'BAĞLANDI',
       `Kullanıcı: ${client.authenticatedUsername} | Client ID: ${client.id}`
     );
+    if (!usernameWasOnline) emailNotifications.notifyDevice(client.authenticatedUsername, true, {
+      clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
+    }).then((sent) => { if (sent) addLog('E-POSTA', `${client.authenticatedUsername} aktif bildirimi gönderildi.`); })
+      .catch((error) => addLog('HATA', `Aktif cihaz e-postası gönderilemedi: ${error.message}`));
   });
 
   broker.on('clientDisconnect', (client) => {
@@ -403,6 +621,11 @@ async function startServer() {
       'KOPTU',
       `Kullanıcı: ${client.authenticatedUsername || 'bilinmiyor'} | Client ID: ${client.id}`
     );
+    const usernameStillOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
+    if (!usernameStillOnline) emailNotifications.notifyDevice(client.authenticatedUsername, false, {
+      clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
+    }).then((sent) => { if (sent) addLog('E-POSTA', `${client.authenticatedUsername} pasif bildirimi gönderildi.`); })
+      .catch((error) => addLog('HATA', `Pasif cihaz e-postası gönderilemedi: ${error.message}`));
   });
 
   broker.on('publish', (packet, client) => {
@@ -410,6 +633,12 @@ async function startServer() {
 
     const message = packet.payload.toString();
     const netRelayEvent = parseNetRelayEvent(message, client, packet.topic);
+    try {
+      const rawEvent = JSON.parse(message);
+      if (rawEvent.type === 'netrelay_firmware_status' && firmwareManager.updateJob(rawEvent)) {
+        addLog('FIRMWARE', `${client.authenticatedUsername}: ${rawEvent.status} %${Number(rawEvent.progress) || 0} ${rawEvent.message || ''}`);
+      }
+    } catch {}
 
     if (netRelayEvent?.type === 'netrelay_device_status') {
       const currentClient = onlineClients.get(client.id);
@@ -418,11 +647,15 @@ async function startServer() {
           ...currentClient,
           status: 'UP',
           deviceUptimeMs: netRelayEvent.deviceUptimeMs,
+          voltage: netRelayEvent.voltage,
+          temperature: netRelayEvent.temperature,
           hostname: netRelayEvent.hostname,
           ipAddress: netRelayEvent.ipAddress,
           lastSeenAt: new Date().toLocaleString('tr-TR'),
           relays: netRelayEvent.relays,
-          inputs: netRelayEvent.inputs
+          inputs: netRelayEvent.inputs,
+          lastJson: message,
+          lastEventAt: new Date().toISOString()
         });
         broadcastState();
       }
@@ -430,6 +663,25 @@ async function startServer() {
         `[DEVICE_STATUS] Kullanıcı: ${client.authenticatedUsername} | Client ID: ${client.id} | Uptime: ${netRelayEvent.deviceUptimeMs} ms`
       );
       return;
+    }
+
+    if (netRelayEvent?.type === 'netrelay_input_event') {
+      const currentClient = onlineClients.get(client.id);
+      if (currentClient) {
+        const inputs = Array.from({ length: 4 }, (_, index) => currentClient.inputs?.[index] || { input: index + 1, name: `input${index + 1}`, io: null, voltage: 0 });
+        inputs[netRelayEvent.input - 1] = { input: netRelayEvent.input, name: netRelayEvent.inputName, io: netRelayEvent.io, voltage: netRelayEvent.voltage };
+        onlineClients.set(client.id, { ...currentClient, inputs, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
+        broadcastState();
+      }
+    }
+    if (netRelayEvent?.type === 'netrelay_relay_event') {
+      const currentClient = onlineClients.get(client.id);
+      if (currentClient) {
+        const relays = Array.isArray(currentClient.relays) ? [...currentClient.relays] : [null, null, null, null];
+        relays[netRelayEvent.relay - 1] = netRelayEvent.position;
+        onlineClients.set(client.id, { ...currentClient, relays, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
+        broadcastState();
+      }
     }
 
     addLog(
@@ -504,6 +756,10 @@ blacklistCleanupTimer.unref();
 function shutdown() {
   clearInterval(blacklistCleanupTimer);
   security.close();
+  scheduledTasks.close();
+  emailNotifications.close();
+  webAuth.close();
+  firmwareManager.close();
 }
 
 process.once('SIGINT', () => {

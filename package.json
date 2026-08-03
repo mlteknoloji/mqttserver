@@ -1,6 +1,6 @@
 {
   "name": "basit-mqtt-server",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "description": "Node.js ile basit MQTT broker ve test istemcisi",
   "main": "server.js",
@@ -10,11 +10,15 @@
   },
   "dependencies": {
     "aedes": "^1.1.1",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.10.0",
     "dotenv": "^17.4.2",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "mqtt": "^5.15.2",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "suncalc": "^1.9.0",
     "ws": "^8.21.1"
   }
 }

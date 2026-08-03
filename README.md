@@ -687,3 +687,19 @@ Bu program varsayılan olarak şifresiz TCP MQTT ve HTTP kullanır. `1883` ve `3
 ## Lisans
 
 Bu depoda henüz ayrı bir lisans dosyası bulunmamaktadır.
+# Web paneli varsayılan yönetici hesabı
+
+Web paneli ilk kurulumda aşağıdaki yönetici hesabını otomatik oluşturur:
+
+- Kullanıcı adı: `admin@mlteknoloji.com`
+- İlk parola: `mltek`
+
+Bu parola yalnızca ilk giriş içindir. İlk başarılı girişten sonra panel, en az 8 karakterli yeni bir parola belirlenmeden yönetim ekranına erişilmesine izin vermez. Parola değiştirildikten sonra yeniden giriş yapılır.
+
+Yönetici, paneldeki **Kullanıcı Yönetimi** menüsünden yeni hesap oluşturabilir; kullanıcı adı, görünen ad, parola, hesap durumu ve bölüm yetkilerini düzenleyebilir. Verilebilen yetkiler genel bakış, röle komutu, zamanlanmış görevler, e-posta ayarları, MQTT blacklist, sunucu logları ve kullanıcı yönetimidir. Yetki kontrolleri hem arayüzde hem sunucu/WebSocket tarafında uygulanır.
+
+## MQTT üzerinden firmware güncelleme
+
+**Firmware Güncelleme** menüsünde ESP32 `.bin` dosyası, sürüm ve donanım modeliyle kaydedilir. Panel dosyanın ESP32 imaj başlığını, OTA bölümüne uygun azami boyutunu ve SHA-256 özetini kontrol eder. Güncelleme başlatıldığında seçilen cihaza MQTT ile süreli HTTP/HTTPS indirme adresi gönderilir. Cihaz indirme ve flash yazma yüzdesini MQTT ile bildirir; dosya boyutu ve SHA-256 doğrulandıktan sonra yeni OTA bölümünden yeniden başlar.
+
+Mevcut `S-3.3.4` cihazlarında MQTT OTA komutu bulunmadığından OTA destekli ilk `S-3.3.5` firmware'i cihazın mevcut `/system` web güncelleme ekranından bir kez elle yüklenmelidir. Bundan sonraki sürümler merkez panelden gönderilebilir. Güncelleme sırasında cihazın enerjisi ve ağ bağlantısı kesilmemelidir.

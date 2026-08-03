@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MQTT Sunucu Paneli</title>
+    <script>
+      (() => {
+        const saved = localStorage.getItem('netrelay-theme');
+        const theme = saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
@@ -15,13 +22,27 @@
         <strong>MQTT Server</strong>
       </div>
       <nav class="sidebar-nav" aria-label="Ana menü">
-        <a class="active" href="#dashboard"><span>⌂</span> Genel Bakış</a>
-        <a href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a>
-        <a href="#relay-command"><span>⇄</span> Röle Komutu</a>
-        <a href="#mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
-        <a href="#server-logs"><span>≡</span> Sunucu Logları</a>
+        <div class="nav-group" data-nav-group="monitoring"><button class="nav-group-title" type="button">İZLEME <span>⌄</span></button><div class="nav-group-items">
+          <a class="active" href="#dashboard"><span>⌂</span> Genel Bakış</a><a href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a><a href="/device-io"><span>⌁</span> Cihaz I/O İzleme</a>
+        </div></div>
+        <div class="nav-group collapsed" data-nav-group="automation"><button class="nav-group-title" type="button">KONTROL VE OTOMASYON <span>⌄</span></button><div class="nav-group-items">
+          <a href="#relay-command"><span>⇄</span> Röle Komutu</a><a href="/scheduled-tasks"><span>◷</span> Zamanlanmış Görevler</a><a href="/firmware-management"><span>⇧</span> Firmware Güncelleme</a>
+        </div></div>
+        <div class="nav-group collapsed" data-nav-group="security"><button class="nav-group-title" type="button">BİLDİRİM VE GÜVENLİK <span>⌄</span></button><div class="nav-group-items">
+          <a href="#email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
+        </div></div>
+        <div class="nav-group collapsed" data-nav-group="system"><button class="nav-group-title" type="button">SİSTEM <span>⌄</span></button><div class="nav-group-items">
+          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="#web-users"><span>♙</span> Kullanıcı Yönetimi</a><% } %>
+        </div></div>
       </nav>
-      <div class="sidebar-footer">NetRelay MQTT yönetimi</div>
+      <div class="sidebar-footer">
+        <label class="theme-control" for="theme-toggle">
+          <span id="theme-icon">☾</span>
+          <span id="theme-label">Karanlık tema</span>
+          <span class="toggle-switch"><input id="theme-toggle" type="checkbox"><span class="toggle-slider"></span></span>
+        </label>
+        <small>NetRelay MQTT yönetimi</small>
+      </div>
     </aside>
     <main class="container">
       <header id="dashboard" class="page-section">
@@ -29,7 +50,7 @@
           <p class="eyebrow">CANLI YÖNETİM EKRANI</p>
           <h1>MQTT Sunucu Paneli</h1>
         </div>
-        <div id="socket-status" class="status offline">Bağlanıyor...</div>
+        <div class="header-actions"><span class="signed-user"><%= currentUser.displayName || currentUser.username %><small><%= currentUser.username %></small></span><div id="socket-status" class="status offline">Bağlanıyor...</div><form method="post" action="/logout"><button class="secondary-button" type="submit">Çıkış</button></form></div>
       </header>
 
       <section id="online-clients" class="card panel page-section">
@@ -57,6 +78,34 @@
             Şu anda bağlı kullanıcı yok.
           </p>
         </div>
+      </section>
+
+      <section id="firmware-management" class="card panel page-section moved-page-section">
+        <div class="panel-title"><h2>Firmware güncelleme</h2><span>ESP32 OTA / MQTT komutu / HTTP indirme</span></div>
+        <form id="firmware-upload-form" class="firmware-upload-form" enctype="multipart/form-data">
+          <label>Firmware .bin<input id="firmware-file" name="firmware" type="file" accept=".bin,application/octet-stream" required></label>
+          <label>Sürüm<input id="firmware-version" name="version" required placeholder="S-3.3.5"></label>
+          <label>Donanım modeli<input id="firmware-hardware" name="hardware" required value="ESP32-S3/W5500/8MB"></label>
+          <label>Not<input id="firmware-notes" name="notes" maxlength="300" placeholder="Sürüm açıklaması"></label>
+          <div class="send-row"><button class="send-button" type="submit">Firmware yükle</button><span id="firmware-upload-result"></span></div>
+        </form>
+        <div class="firmware-start">
+          <label>Firmware<select id="firmware-select"><option value="">Firmware seçin</option></select></label>
+          <label>Hedef cihaz<select id="firmware-device-select"><option value="">Çevrimiçi cihaz seçin</option></select></label>
+          <button id="firmware-start-button" class="danger-button" type="button">Güncellemeyi başlat</button><span id="firmware-result"></span>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Sürüm</th><th>Donanım</th><th>Dosya / Boyut</th><th>SHA-256</th><th>İşlem</th></tr></thead><tbody id="firmware-list"></tbody></table><p id="empty-firmwares" class="empty">Yüklü firmware yok.</p></div>
+        <div class="panel-title"><h2>Güncelleme geçmişi</h2><span>Son 100 işlem</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Cihaz</th><th>Firmware</th><th>Durum</th><th>İlerleme</th><th>Mesaj / Tarih</th></tr></thead><tbody id="firmware-job-list"></tbody></table><p id="empty-firmware-jobs" class="empty">Henüz güncelleme işlemi yok.</p></div>
+      </section>
+
+      <section id="device-io" class="card panel page-section moved-page-section">
+        <div class="panel-title"><h2>Cihaz input / output izleme</h2><span>Canlı MQTT JSON verileri ve manuel kontrol</span></div>
+        <div class="device-selector"><label>İzlenecek kullanıcı / cihaz<select id="io-device-select"><option value="">Çevrimiçi cihaz seçin</option></select></label><span id="io-last-seen">Cihaz seçilmedi</span></div>
+        <div id="io-device-meta" class="io-device-meta">Date Time: —, Voltage: —, Uptime: —, Temperature: —</div>
+        <div class="io-visual"><div><h3>Output / röleler</h3><div id="io-relays" class="io-output-grid"></div></div><div><h3>Inputlar</h3><div id="io-inputs" class="io-input-grid"></div></div></div>
+        <div class="raw-json"><div><h3>Son gelen cihaz JSON verisi</h3><button id="io-copy-json" class="secondary-button" type="button">JSON kopyala</button></div><pre id="io-raw-json">Cihazdan henüz JSON verisi alınmadı.</pre></div>
+        <div class="send-row io-result-row"><span id="io-command-result"></span></div>
       </section>
 
       <section class="summary">
@@ -130,7 +179,69 @@
         </div>
       </section>
 
-      <section id="mqtt-blacklist" class="card panel page-section">
+      <section id="scheduled-tasks" class="card panel page-section moved-page-section">
+        <div class="panel-title">
+          <h2>Zamanlanmış görevler</h2>
+          <span>SQLite / Cron / Güneş zamanları</span>
+        </div>
+        <form id="schedule-form" class="schedule-form">
+          <input id="schedule-id" type="hidden">
+          <label>Görev adı<input id="schedule-name" required maxlength="100" placeholder="Bahçe ışıklarını aç"></label>
+          <label>Hedef MQTT kullanıcısı<input id="schedule-target" required list="schedule-users" placeholder="şube1"></label>
+          <datalist id="schedule-users"></datalist>
+          <fieldset><legend>Röleler</legend><div class="relay-options">
+            <% [1, 2, 3, 4].forEach((relay) => { %><label class="relay-option"><input class="schedule-relay" type="checkbox" value="<%= relay %>"> Röle <%= relay %></label><% }) %>
+          </div></fieldset>
+          <fieldset><legend>Yeni konum</legend><div class="relay-options">
+            <label class="relay-option"><input type="radio" name="schedule-position" value="1" checked> 1 (Açık)</label>
+            <label class="relay-option"><input type="radio" name="schedule-position" value="0"> 0 (Kapalı)</label>
+          </div></fieldset>
+          <label>Çalışma biçimi<select id="schedule-mode"><option value="cron">Cron saati</option><option value="sunrise">Gün doğumu</option><option value="sunset">Gün batımı</option></select></label>
+          <label>Eski konuma dön (saniye, 0 = kapalı)<input id="schedule-restore" type="number" min="0" max="4294967" value="0"></label>
+          <div id="cron-builder" class="cron-builder">
+            <label>Dakika<select id="cron-minute"><option value="*">Her dakika</option><option value="*/5">5 dakikada bir</option><option value="*/10">10 dakikada bir</option><option value="*/15">15 dakikada bir</option><option value="*/30">30 dakikada bir</option></select></label>
+            <label>Saat<select id="cron-hour"><option value="*">Her saat</option></select></label>
+            <label>Ayın günü<select id="cron-day"><option value="*">Her gün</option></select></label>
+            <label>Ay<select id="cron-month"><option value="*">Her ay</option></select></label>
+            <label>Haftanın günü<select id="cron-weekday"><option value="*">Her gün</option><option value="1-5">Hafta içi</option><option value="0,6">Hafta sonu</option><option value="1">Pazartesi</option><option value="2">Salı</option><option value="3">Çarşamba</option><option value="4">Perşembe</option><option value="5">Cuma</option><option value="6">Cumartesi</option><option value="0">Pazar</option></select></label>
+          </div>
+          <label class="cron-value">Oluşturulan cron değeri<input id="schedule-cron" required value="* * * * *" pattern="\S+\s+\S+\s+\S+\s+\S+\s+\S+"></label>
+          <div id="solar-fields" class="solar-fields hidden">
+            <label>Enlem<input id="schedule-latitude" type="number" min="-90" max="90" step="any" placeholder="41.0082"></label>
+            <label>Boylam<input id="schedule-longitude" type="number" min="-180" max="180" step="any" placeholder="28.9784"></label>
+            <label>Dakika ekle / çıkar<input id="schedule-solar-offset" type="number" min="-1440" max="1440" value="0"></label>
+            <p id="solar-preview" class="solar-preview">Konum girildiğinde saatler hesaplanır.</p>
+          </div>
+          <label class="toggle-label schedule-enabled"><span>Görev etkin</span><span class="toggle-switch"><input id="schedule-enabled" type="checkbox" checked><span class="toggle-slider"></span></span></label>
+          <div class="send-row"><button class="send-button" type="submit">Görevi kaydet</button><button id="schedule-reset" class="secondary-button" type="button">Yeni görev</button><span id="schedule-result"></span></div>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Görev</th><th>Hedef / Röle</th><th>Zaman</th><th>Geri al</th><th>Sonuç</th><th>Durum / İşlem</th></tr></thead><tbody id="schedule-list"></tbody></table><p id="empty-schedules" class="empty">Henüz zamanlanmış görev yok.</p></div>
+      </section>
+
+      <section id="email-notifications" class="card panel page-section">
+        <div class="panel-title"><h2>E-posta bildirimleri</h2><span>SMTP / cihaz aktif-pasif takibi</span></div>
+        <form id="email-settings-form" class="email-settings-form">
+          <label>SMTP sunucusu<input id="email-host" required placeholder="smtp.example.com"></label>
+          <label>Port<input id="email-port" required type="number" min="1" max="65535" value="587"></label>
+          <label>SMTP kullanıcı adı<input id="email-username" autocomplete="username" placeholder="bildirim@example.com"></label>
+          <label>SMTP parolası<input id="email-password" type="password" autocomplete="new-password" placeholder="Kaydedilmiş parolayı korumak için boş bırakın"></label>
+          <label>Gönderen<input id="email-sender" required placeholder="NetRelay <bildirim@example.com>"></label>
+          <label>Alıcılar<input id="email-recipients" required placeholder="yonetici@example.com, teknik@example.com"></label>
+          <label class="toggle-label"><span>SSL/TLS (genellikle port 465)</span><span class="toggle-switch"><input id="email-secure" type="checkbox"><span class="toggle-slider"></span></span></label>
+          <label class="toggle-label"><span>Bildirimleri etkinleştir</span><span class="toggle-switch"><input id="email-enabled" type="checkbox"><span class="toggle-slider"></span></span></label>
+          <div class="send-row"><button class="send-button" type="submit">SMTP ayarlarını kaydet</button><button id="email-test" class="secondary-button" type="button">Test e-postası gönder</button><span id="email-result"></span></div>
+        </form>
+        <form id="email-monitor-form" class="email-monitor-form">
+          <label>İzlenecek MQTT kullanıcısı<input id="email-monitor-username" required list="email-device-users" placeholder="şube1"></label>
+          <datalist id="email-device-users"></datalist>
+          <label>Cihaz görünen adı<input id="email-monitor-name" maxlength="100" placeholder="Merkez şube röle kartı"></label>
+          <label>Şubeye özel alıcılar<input id="email-monitor-recipients" placeholder="sube@example.com, teknik@example.com"></label>
+          <button class="send-button" type="submit">Cihazı izlemeye ekle</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>MQTT kullanıcısı</th><th>Cihaz adı</th><th>Alıcılar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="email-monitor-list"></tbody></table><p id="empty-email-monitors" class="empty">E-posta ile izlenen cihaz yok.</p></div>
+      </section>
+
+      <section id="mqtt-blacklist" class="card panel page-section moved-page-section">
         <div class="panel-title">
           <h2>MQTT Blacklist</h2>
           <span>SQLite üzerinde kalıcı</span>
@@ -182,6 +293,24 @@
           <% }) %>
         </div>
       </section>
+
+      <% if (currentUser.role === 'admin') { %>
+      <section id="web-users" class="card panel page-section">
+        <div class="panel-title"><h2>Panel kullanıcıları</h2><span>Hesap / parola / yetki yönetimi</span></div>
+        <form id="web-user-form" class="web-user-form">
+          <input id="web-user-id" type="hidden">
+          <label>Kullanıcı adı<input id="web-user-username" required placeholder="kullanici@example.com"></label>
+          <label>Görünen ad<input id="web-user-display-name" maxlength="100" placeholder="Teknik kullanıcı"></label>
+          <label>Parola<input id="web-user-password" type="password" minlength="8" placeholder="Düzenlemede değiştirmemek için boş bırakın"></label>
+          <label>Hesap türü<select id="web-user-role"><option value="user">Yetkili kullanıcı</option><option value="admin">Yönetici (tüm yetkiler)</option></select></label>
+          <fieldset><legend>Bölüm yetkileri</legend><div id="web-user-permissions" class="permission-grid"></div></fieldset>
+          <label class="toggle-label"><span>Hesap etkin</span><span class="toggle-switch"><input id="web-user-enabled" type="checkbox" checked><span class="toggle-slider"></span></span></label>
+          <label class="toggle-label"><span>Sonraki girişte parola değiştir</span><span class="toggle-switch"><input id="web-user-must-change" type="checkbox" checked><span class="toggle-slider"></span></span></label>
+          <div class="send-row"><button class="send-button" type="submit">Kullanıcıyı kaydet</button><button id="web-user-reset" class="secondary-button" type="button">Yeni kullanıcı</button><span id="web-user-result"></span></div>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Kullanıcı</th><th>Tür</th><th>Yetkiler</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="web-user-list"></tbody></table></div>
+      </section>
+      <% } %>
     </main>
 
     <script>
@@ -204,7 +333,215 @@
       const sidebarOverlay = document.getElementById('sidebar-overlay');
       const menuLinks = [...document.querySelectorAll('.sidebar-nav a')];
       const debugLogEnabled = document.getElementById('debug-log-enabled');
+      const themeToggle = document.getElementById('theme-toggle');
+      const themeLabel = document.getElementById('theme-label');
+      const themeIcon = document.getElementById('theme-icon');
+      const emailResult = document.getElementById('email-result');
+      const emailMonitorList = document.getElementById('email-monitor-list');
+      const webUserForm = document.getElementById('web-user-form');
+      const webUserList = document.getElementById('web-user-list');
+      const ioDeviceSelect = document.getElementById('io-device-select');
+      const ioRelays = document.getElementById('io-relays');
+      const ioInputs = document.getElementById('io-inputs');
+      const ioRawJson = document.getElementById('io-raw-json');
+      const ioCommandResult = document.getElementById('io-command-result');
+      let latestOnlineClients = [];
+      let signedInUser = null;
+      let webUsers = [];
+      let firmwares = [];
+      const scheduleForm = document.getElementById('schedule-form');
+      const scheduleList = document.getElementById('schedule-list');
+      const scheduleResult = document.getElementById('schedule-result');
+      const scheduleMode = document.getElementById('schedule-mode');
+      let scheduledTasks = [];
       let socket;
+
+      function renderDeviceIo() {
+        const device = latestOnlineClients.find((client) => client.clientId === ioDeviceSelect.value);
+        ioRelays.replaceChildren(); ioInputs.replaceChildren();
+        document.getElementById('io-last-seen').textContent = device ? `Son görülme: ${device.lastSeenAt || device.connectedAt}` : 'Cihaz seçilmedi';
+        const canControl = signedInUser?.permissions?.includes('relay');
+        const inputVoltage = device?.inputs?.find((input) => input?.voltage != null && Number.isFinite(Number(input.voltage)))?.voltage;
+        const voltage = device?.voltage != null && Number.isFinite(Number(device.voltage)) ? Number(device.voltage) : inputVoltage != null && Number.isFinite(Number(inputVoltage)) ? Number(inputVoltage) : null;
+        const temperature = device?.temperature != null && Number.isFinite(Number(device.temperature)) ? `${Number(device.temperature).toFixed(2)} °C` : '—';
+        document.getElementById('io-device-meta').textContent = device
+          ? `Date Time: ${device.lastEventAt ? new Date(device.lastEventAt).toLocaleString('tr-TR') : device.lastSeenAt || '—'}, Voltage: ${voltage == null ? '—' : `${voltage.toFixed(2)} V`}, Uptime: ${formatUptime(device.deviceUptimeMs)}, Temperature: ${temperature}`
+          : 'Date Time: —, Voltage: —, Uptime: —, Temperature: —';
+        for (let index = 0; index < 4; index++) {
+          const state = device?.relays?.[index]; const output=document.createElement('div'); output.className=`io-output ${state===1?'active':''}`;
+          const outputLabel=document.createElement('span');outputLabel.className='io-output-label';outputLabel.textContent=`OUT ${index+1}`;
+          const toggle=document.createElement('button');toggle.type='button';toggle.className=`io-switch ${state===1?'active':''}`;toggle.dataset.ioRelay=index+1;toggle.dataset.ioPosition=state===1?0:1;toggle.disabled=!device||!canControl;toggle.setAttribute('aria-label',`Röle ${index+1} ${state===1?'kapat':'aç'}`);const toggleText=document.createElement('span');toggleText.textContent=state===1?'ON':state===0?'OFF':'—';toggle.appendChild(toggleText);output.append(outputLabel,toggle);ioRelays.appendChild(output);
+          const input=device?.inputs?.[index];const inputState=input?.io;const inputItem=document.createElement('div');inputItem.className=`io-input ${inputState===1?'active':''}`;const inputLabel=document.createElement('span');inputLabel.className='io-input-label';inputLabel.textContent=input?.name||`INP${index+1}`;const bar=document.createElement('span');bar.className='io-input-bar';const detail=document.createElement('small');detail.textContent=`${inputState===1?'ON':inputState===0?'OFF':'—'} · ${input?.voltage != null&&Number.isFinite(Number(input.voltage))?`${Number(input.voltage).toFixed(2)} V`:'Voltaj —'}`;inputItem.append(inputLabel,bar,detail);ioInputs.appendChild(inputItem);
+        }
+        if (!device?.lastJson) ioRawJson.textContent='Cihazdan henüz JSON verisi alınmadı.';
+        else { try { ioRawJson.textContent=JSON.stringify(JSON.parse(device.lastJson),null,2); } catch { ioRawJson.textContent=device.lastJson; } }
+      }
+      ioDeviceSelect.addEventListener('change', renderDeviceIo);
+      ioRelays.addEventListener('click', (event) => {
+        const button=event.target.closest('[data-io-relay]'); const device=latestOnlineClients.find((client)=>client.clientId===ioDeviceSelect.value); if(!button||!device||!socket||socket.readyState!==WebSocket.OPEN)return;
+        socket.send(JSON.stringify({type:'publish',targetClientId:device.clientId,payload:JSON.stringify({type:'netrelay',command:'set',targetUsername:device.username,relays:[Number(button.dataset.ioRelay)],position:Number(button.dataset.ioPosition),delay:0})}));
+        ioCommandResult.textContent=`Röle ${button.dataset.ioRelay} komutu gönderildi.`;ioCommandResult.className='result-success';
+      });
+      document.getElementById('io-copy-json').addEventListener('click', async()=>{try{await navigator.clipboard.writeText(ioRawJson.textContent);ioCommandResult.textContent='JSON panoya kopyalandı.';ioCommandResult.className='result-success';}catch{ioCommandResult.textContent='JSON kopyalanamadı.';ioCommandResult.className='result-error';}});
+
+      function applyTheme(theme, persist = true) {
+        const light = theme === 'light';
+        document.documentElement.dataset.theme = light ? 'light' : 'dark';
+        themeToggle.checked = !light;
+        themeLabel.textContent = light ? 'Aydınlık tema' : 'Karanlık tema';
+        themeIcon.textContent = light ? '☀' : '☾';
+        if (persist) localStorage.setItem('netrelay-theme', light ? 'light' : 'dark');
+      }
+      themeToggle.addEventListener('change', () => applyTheme(themeToggle.checked ? 'dark' : 'light'));
+      applyTheme(document.documentElement.dataset.theme, false);
+
+      for (let hour = 0; hour < 24; hour++) document.getElementById('cron-hour').add(new Option(String(hour).padStart(2, '0'), hour));
+      for (let day = 1; day <= 31; day++) document.getElementById('cron-day').add(new Option(day, day));
+      for (let month = 1; month <= 12; month++) document.getElementById('cron-month').add(new Option(month, month));
+
+      function updateCron() {
+        document.getElementById('schedule-cron').value = ['minute', 'hour', 'day', 'month', 'weekday'].map((field) => document.getElementById(`cron-${field}`).value).join(' ');
+      }
+      document.querySelectorAll('#cron-builder select').forEach((select) => select.addEventListener('change', updateCron));
+
+      function updateSolar() {
+        const solar = scheduleMode.value !== 'cron';
+        document.getElementById('solar-fields').classList.toggle('hidden', !solar);
+        document.getElementById('cron-builder').classList.toggle('hidden', solar);
+        const lat = Number(document.getElementById('schedule-latitude').value);
+        const lon = Number(document.getElementById('schedule-longitude').value);
+        if (!solar || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        // Ön izleme yaklaşık tarayıcı hesabıdır; kesin çalışma zamanı sunucuda aynı konumla hesaplanır.
+        const rad = Math.PI / 180, now = new Date(), start = new Date(now.getFullYear(), 0, 0);
+        const day = Math.floor((now - start) / 86400000), gamma = 2 * Math.PI / 365 * (day - 1),
+          eq = 229.18 * (0.000075 + 0.001868*Math.cos(gamma) - 0.032077*Math.sin(gamma) - 0.014615*Math.cos(2*gamma) - 0.040849*Math.sin(2*gamma)),
+          decl = 0.006918 - 0.399912*Math.cos(gamma) + 0.070257*Math.sin(gamma) - 0.006758*Math.cos(2*gamma) + 0.000907*Math.sin(2*gamma),
+          angle = Math.acos(Math.cos(90.833*rad)/(Math.cos(lat*rad)*Math.cos(decl))-Math.tan(lat*rad)*Math.tan(decl)),
+          noon = 720 - 4*lon - eq - now.getTimezoneOffset(), offset = Number(document.getElementById('schedule-solar-offset').value || 0),
+          minutes = noon + (scheduleMode.value === 'sunrise' ? -4*angle/rad : 4*angle/rad) + offset;
+        document.getElementById('solar-preview').textContent = `${scheduleMode.value === 'sunrise' ? 'Gün doğumu' : 'Gün batımı'}: ${String(Math.floor(minutes/60)%24).padStart(2,'0')}:${String(Math.round(minutes)%60).padStart(2,'0')} (bugün, yaklaşık)`;
+      }
+      scheduleMode.addEventListener('change', updateSolar);
+      ['schedule-latitude','schedule-longitude','schedule-solar-offset'].forEach((id) => document.getElementById(id).addEventListener('input', updateSolar));
+
+      function resetScheduleForm() {
+        scheduleForm.reset();
+        document.getElementById('schedule-id').value = '';
+        document.getElementById('schedule-enabled').checked = true;
+        updateCron(); updateSolar(); scheduleResult.textContent = '';
+      }
+      document.getElementById('schedule-reset').addEventListener('click', resetScheduleForm);
+      scheduleForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'scheduledTaskSave', task: {
+          id: document.getElementById('schedule-id').value || undefined,
+          name: document.getElementById('schedule-name').value,
+          targetUsername: document.getElementById('schedule-target').value,
+          relays: [...document.querySelectorAll('.schedule-relay:checked')].map((item) => Number(item.value)),
+          position: Number(document.querySelector('input[name="schedule-position"]:checked').value),
+          cron: document.getElementById('schedule-cron').value, mode: scheduleMode.value,
+          latitude: document.getElementById('schedule-latitude').value,
+          longitude: document.getElementById('schedule-longitude').value,
+          solarOffsetMinutes: Number(document.getElementById('schedule-solar-offset').value),
+          restoreSeconds: Number(document.getElementById('schedule-restore').value),
+          enabled: document.getElementById('schedule-enabled').checked
+        }}));
+        scheduleResult.textContent = 'Kaydediliyor...';
+      });
+      scheduleList.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-task-action]'); if (!button) return;
+        const task = scheduledTasks.find((item) => item.id === Number(button.dataset.taskId)); if (!task) return;
+        if (button.dataset.taskAction === 'toggle') socket.send(JSON.stringify({ type: 'scheduledTaskEnabled', id: task.id, enabled: !task.enabled }));
+        if (button.dataset.taskAction === 'remove' && confirm(`“${task.name}” görevi silinsin mi?`)) socket.send(JSON.stringify({ type: 'scheduledTaskRemove', id: task.id }));
+        if (button.dataset.taskAction === 'edit') {
+          document.getElementById('schedule-id').value = task.id; document.getElementById('schedule-name').value = task.name;
+          document.getElementById('schedule-target').value = task.targetUsername; scheduleMode.value = task.mode;
+          document.getElementById('schedule-cron').value = task.cron; document.getElementById('schedule-restore').value = task.restoreSeconds;
+          document.getElementById('schedule-latitude').value = task.latitude ?? ''; document.getElementById('schedule-longitude').value = task.longitude ?? '';
+          document.getElementById('schedule-solar-offset').value = task.solarOffsetMinutes; document.getElementById('schedule-enabled').checked = task.enabled;
+          document.querySelectorAll('.schedule-relay').forEach((item) => item.checked = task.relays.includes(Number(item.value)));
+          document.querySelector(`input[name="schedule-position"][value="${task.position}"]`).checked = true;
+          updateSolar(); scheduleForm.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+
+      document.getElementById('email-settings-form').addEventListener('submit', (event) => {
+        event.preventDefault(); if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'emailSettingsSave', settings: {
+          host: document.getElementById('email-host').value, port: Number(document.getElementById('email-port').value),
+          secure: document.getElementById('email-secure').checked, username: document.getElementById('email-username').value,
+          password: document.getElementById('email-password').value, sender: document.getElementById('email-sender').value,
+          recipients: document.getElementById('email-recipients').value, enabled: document.getElementById('email-enabled').checked
+        }}));
+        emailResult.textContent = 'Kaydediliyor...';
+      });
+      document.getElementById('email-test').addEventListener('click', () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'emailSendTest' })); emailResult.textContent = 'Test e-postası gönderiliyor...';
+      });
+      document.getElementById('email-monitor-form').addEventListener('submit', (event) => {
+        event.preventDefault(); if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'emailMonitorSave', monitor: {
+          username: document.getElementById('email-monitor-username').value,
+          displayName: document.getElementById('email-monitor-name').value,
+          recipients: document.getElementById('email-monitor-recipients').value, enabled: true
+        }}));
+        event.target.reset(); emailResult.textContent = 'Cihaz ekleniyor...';
+      });
+      emailMonitorList.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-email-action]'); if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
+        const username = button.dataset.emailUsername;
+        if (button.dataset.emailAction === 'toggle') socket.send(JSON.stringify({ type: 'emailMonitorEnabled', username, enabled: button.dataset.emailEnabled !== 'true' }));
+        if (button.dataset.emailAction === 'remove' && confirm(`${username} cihazının e-posta takibi kaldırılsın mı?`)) socket.send(JSON.stringify({ type: 'emailMonitorRemove', username }));
+      });
+
+      const permissionLabels = { dashboard: 'Genel bakış ve cihazlar', relay: 'Röle komutu', schedules: 'Zamanlanmış görevler', firmware: 'Firmware güncelleme', email: 'E-posta ayarları', blacklist: 'MQTT blacklist', logs: 'Sunucu logları', users: 'Kullanıcı yönetimi' };
+      if (webUserForm) {
+        const permissionGrid = document.getElementById('web-user-permissions');
+        Object.entries(permissionLabels).forEach(([value, label]) => { const item=document.createElement('label'); item.className='relay-option'; item.innerHTML=`<input class="web-permission" type="checkbox" value="${value}"> ${label}`; permissionGrid.appendChild(item); });
+        function resetWebUser() { webUserForm.reset(); document.getElementById('web-user-id').value=''; document.getElementById('web-user-enabled').checked=true; document.getElementById('web-user-must-change').checked=true; document.getElementById('web-user-password').required=true; }
+        document.getElementById('web-user-reset').addEventListener('click', resetWebUser);
+        webUserForm.addEventListener('submit', (event) => {
+          event.preventDefault(); const id=document.getElementById('web-user-id').value;
+          socket.send(JSON.stringify({ type:'webUserSave', user:{ id:id||undefined, username:document.getElementById('web-user-username').value,
+            displayName:document.getElementById('web-user-display-name').value, password:document.getElementById('web-user-password').value,
+            role:document.getElementById('web-user-role').value, permissions:[...document.querySelectorAll('.web-permission:checked')].map((item)=>item.value),
+            enabled:document.getElementById('web-user-enabled').checked, mustChangePassword:document.getElementById('web-user-must-change').checked }}));
+          document.getElementById('web-user-result').textContent='Kaydediliyor...';
+        });
+        webUserList.addEventListener('click', (event) => {
+          const button=event.target.closest('[data-user-action]'); if(!button) return; const user=webUsers.find((item)=>item.id===Number(button.dataset.userId)); if(!user)return;
+          if(button.dataset.userAction==='remove' && confirm(`${user.username} kullanıcısı silinsin mi?`)) socket.send(JSON.stringify({type:'webUserRemove',id:user.id}));
+          if(button.dataset.userAction==='edit') { document.getElementById('web-user-id').value=user.id; document.getElementById('web-user-username').value=user.username; document.getElementById('web-user-display-name').value=user.displayName;
+            document.getElementById('web-user-password').value=''; document.getElementById('web-user-password').required=false; document.getElementById('web-user-role').value=user.role;
+            document.getElementById('web-user-enabled').checked=user.enabled; document.getElementById('web-user-must-change').checked=user.mustChangePassword;
+            document.querySelectorAll('.web-permission').forEach((item)=>item.checked=user.permissions.includes(item.value)); webUserForm.scrollIntoView({behavior:'smooth'}); }
+        });
+        resetWebUser();
+      }
+
+      function applyPermissions(user) {
+        const allowed = new Set(user?.permissions || []);
+        const mapping = { dashboard:['dashboard','online-clients','device-io'], relay:['relay-command'], schedules:['scheduled-tasks'], firmware:['firmware-management'], email:['email-notifications'], blacklist:['mqtt-blacklist'], logs:['server-logs'], users:['web-users'] };
+        for (const [permission, ids] of Object.entries(mapping)) for (const id of ids) {
+          const section=document.getElementById(id); if(section) section.classList.toggle('permission-hidden', !allowed.has(permission));
+          document.querySelectorAll(`.sidebar-nav a[href="#${id}"]`).forEach((link)=>link.classList.toggle('permission-hidden', !allowed.has(permission)));
+        }
+      }
+
+      document.getElementById('firmware-upload-form').addEventListener('submit', async (event) => {
+        event.preventDefault(); const result=document.getElementById('firmware-upload-result'); result.textContent='Yükleniyor...';result.className='';
+        try { const response=await fetch('/api/firmwares',{method:'POST',body:new FormData(event.target)}); const data=await response.json(); if(!response.ok)throw new Error(data.error||'Yükleme başarısız.'); result.textContent=data.message;result.className='result-success';event.target.reset(); }
+        catch(error){result.textContent=error.message;result.className='result-error';}
+      });
+      document.getElementById('firmware-start-button').addEventListener('click',()=>{
+        const firmwareId=Number(document.getElementById('firmware-select').value),targetClientId=document.getElementById('firmware-device-select').value;
+        const firmware=firmwares.find((item)=>item.id===firmwareId);if(!firmware||!targetClientId)return;
+        if(!confirm(`${firmware.version} firmware güncellemesi seçilen cihazda başlatılsın mı? Güncelleme sırasında cihazın enerjisini kesmeyin.`))return;
+        socket.send(JSON.stringify({type:'firmwareUpdateStart',firmwareId,targetClientId}));document.getElementById('firmware-result').textContent='OTA komutu gönderiliyor...';
+      });
+      document.getElementById('firmware-list').addEventListener('click',(event)=>{const button=event.target.closest('[data-firmware-remove]');if(button&&confirm('Bu firmware silinsin mi?'))socket.send(JSON.stringify({type:'firmwareRemove',id:Number(button.dataset.firmwareRemove)}));});
 
       function setMenuOpen(open) {
         document.body.classList.toggle('menu-open', open);
@@ -215,7 +552,18 @@
 
       menuToggle.addEventListener('click', () => setMenuOpen(!document.body.classList.contains('menu-open')));
       sidebarOverlay.addEventListener('click', () => setMenuOpen(false));
-      menuLinks.forEach((link) => link.addEventListener('click', () => setMenuOpen(false)));
+      const navGroups = [...document.querySelectorAll('.nav-group')];
+      function openNavGroup(group) {
+        navGroups.forEach((item) => item.classList.toggle('collapsed', item !== group));
+        if (group) localStorage.setItem('netrelay-nav-group', group.dataset.navGroup);
+      }
+      navGroups.forEach((group) => group.querySelector('.nav-group-title').addEventListener('click', () => openNavGroup(group)));
+      const savedNavGroup = navGroups.find((group) => group.dataset.navGroup === localStorage.getItem('netrelay-nav-group'));
+      openNavGroup(savedNavGroup || navGroups[0]);
+      menuLinks.forEach((link) => link.addEventListener('click', () => {
+        openNavGroup(link.closest('.nav-group'));
+        setMenuOpen(false);
+      }));
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') setMenuOpen(false);
       });
@@ -319,6 +667,9 @@
       }
 
       function render(state) {
+        signedInUser = state.currentUser;
+        latestOnlineClients = state.onlineClients;
+        applyPermissions(state.currentUser);
         debugLogEnabled.checked = state.debugLoggingEnabled === true;
         onlineCount.textContent = state.onlineClients.length;
         onlineList.replaceChildren();
@@ -365,6 +716,66 @@
         }
         document.getElementById('send-command').disabled = state.onlineClients.length === 0;
         updatePayload();
+
+        const selectedIoClient=ioDeviceSelect.value; ioDeviceSelect.replaceChildren(new Option('Çevrimiçi cihaz seçin',''));
+        for(const client of state.onlineClients){const option=new Option(`${client.username} — ${client.hostname||client.clientId}`,client.clientId);ioDeviceSelect.appendChild(option)}
+        if([...ioDeviceSelect.options].some((option)=>option.value===selectedIoClient))ioDeviceSelect.value=selectedIoClient; renderDeviceIo();
+
+        scheduledTasks = state.scheduledTasks || [];
+        const users = document.getElementById('schedule-users'); users.replaceChildren();
+        [...new Set(state.onlineClients.map((client) => client.username))].forEach((username) => users.appendChild(new Option(username)));
+        scheduleList.replaceChildren();
+        document.getElementById('empty-schedules').classList.toggle('hidden', scheduledTasks.length > 0);
+        for (const task of scheduledTasks) {
+          const row = document.createElement('tr');
+          const name = addCell(row, task.name); name.appendChild(Object.assign(document.createElement('small'), { textContent: `#${task.id}` }));
+          addCell(row, `${task.targetUsername} / ${task.relays.join(', ')}`);
+          addCell(row, task.mode === 'cron' ? task.cron : `${task.mode === 'sunrise' ? 'Gün doğumu' : 'Gün batımı'} ${task.solarOffsetMinutes >= 0 ? '+' : ''}${task.solarOffsetMinutes} dk`);
+          addCell(row, task.restoreSeconds ? `${task.restoreSeconds} sn` : 'Kapalı');
+          const last = addCell(row, task.lastResult || 'Henüz çalışmadı'); if (task.lastRunAt) last.appendChild(Object.assign(document.createElement('small'), { textContent: new Date(task.lastRunAt).toLocaleString('tr-TR') }));
+          const actions = addCell(row, ''); const wrap = document.createElement('div'); wrap.className = 'schedule-actions';
+          [['toggle', task.enabled ? 'Devre dışı bırak' : 'Etkinleştir'], ['edit','Düzenle'], ['remove','Sil']].forEach(([action,label]) => { const button=document.createElement('button'); button.type='button'; button.className=action==='remove'?'danger-button compact':'secondary-button'; button.dataset.taskAction=action; button.dataset.taskId=task.id; button.textContent=label; wrap.appendChild(button); });
+          actions.appendChild(wrap); scheduleList.appendChild(row);
+        }
+
+        const emailState = state.emailNotifications || { settings: {}, monitors: [] };
+        const emailSettings = emailState.settings || {};
+        document.getElementById('email-host').value = emailSettings.host || '';
+        document.getElementById('email-port').value = emailSettings.port || 587;
+        document.getElementById('email-username').value = emailSettings.username || '';
+        document.getElementById('email-password').value = '';
+        document.getElementById('email-password').placeholder = emailSettings.hasPassword ? 'Parola kayıtlı; değiştirmek için yazın' : 'SMTP parolası';
+        document.getElementById('email-sender').value = emailSettings.sender || '';
+        document.getElementById('email-recipients').value = emailSettings.recipients || '';
+        document.getElementById('email-secure').checked = emailSettings.secure === true;
+        document.getElementById('email-enabled').checked = emailSettings.enabled === true;
+        const emailUsers = document.getElementById('email-device-users'); emailUsers.replaceChildren();
+        [...new Set(state.onlineClients.map((client) => client.username))].forEach((username) => emailUsers.appendChild(new Option(username)));
+        emailMonitorList.replaceChildren();
+        document.getElementById('empty-email-monitors').classList.toggle('hidden', emailState.monitors.length > 0);
+        for (const monitor of emailState.monitors) {
+          const row = document.createElement('tr'); addCell(row, monitor.username); addCell(row, monitor.displayName || '—');
+          addCell(row, monitor.recipients || 'Genel alıcılar');
+          addCell(row, monitor.enabled ? 'İzleniyor' : 'Devre dışı');
+          const cell = addCell(row, ''); const wrap = document.createElement('div'); wrap.className = 'schedule-actions';
+          [['toggle', monitor.enabled ? 'Devre dışı bırak' : 'Etkinleştir'], ['remove', 'Kaldır']].forEach(([action,label]) => { const button=document.createElement('button'); button.type='button'; button.className=action==='remove'?'danger-button compact':'secondary-button'; button.dataset.emailAction=action; button.dataset.emailUsername=monitor.username; button.dataset.emailEnabled=monitor.enabled; button.textContent=label; wrap.appendChild(button); });
+          cell.appendChild(wrap); emailMonitorList.appendChild(row);
+        }
+
+        const firmwareState=state.firmwareManagement||{firmwares:[],jobs:[]};firmwares=firmwareState.firmwares||[];
+        const firmwareSelect=document.getElementById('firmware-select'),firmwareDeviceSelect=document.getElementById('firmware-device-select');const selectedFirmware=firmwareSelect.value,selectedFirmwareDevice=firmwareDeviceSelect.value;
+        firmwareSelect.replaceChildren(new Option('Firmware seçin',''));firmwareDeviceSelect.replaceChildren(new Option('Çevrimiçi cihaz seçin',''));
+        firmwares.forEach((item)=>firmwareSelect.appendChild(new Option(`${item.version} — ${item.hardware}`,item.id)));state.onlineClients.forEach((client)=>firmwareDeviceSelect.appendChild(new Option(`${client.username} — ${client.hostname||client.clientId}`,client.clientId)));
+        if([...firmwareSelect.options].some((option)=>option.value===selectedFirmware))firmwareSelect.value=selectedFirmware;if([...firmwareDeviceSelect.options].some((option)=>option.value===selectedFirmwareDevice))firmwareDeviceSelect.value=selectedFirmwareDevice;
+        const firmwareList=document.getElementById('firmware-list');firmwareList.replaceChildren();document.getElementById('empty-firmwares').classList.toggle('hidden',firmwares.length>0);
+        firmwares.forEach((item)=>{const row=document.createElement('tr');addCell(row,item.version);addCell(row,item.hardware);const file=addCell(row,`${(item.size/1024/1024).toFixed(2)} MB`);file.appendChild(Object.assign(document.createElement('small'),{textContent:item.originalName}));const sha=addCell(row,item.sha256);sha.className='sha-cell';const action=addCell(row,'');const button=document.createElement('button');button.type='button';button.className='danger-button compact';button.dataset.firmwareRemove=item.id;button.textContent='Sil';action.appendChild(button);firmwareList.appendChild(row)});
+        const jobs=firmwareState.jobs||[],jobList=document.getElementById('firmware-job-list');jobList.replaceChildren();document.getElementById('empty-firmware-jobs').classList.toggle('hidden',jobs.length>0);
+        jobs.forEach((job)=>{const row=document.createElement('tr');addCell(row,job.targetUsername);addCell(row,firmwares.find((item)=>item.id===job.firmwareId)?.version||`#${job.firmwareId}`);addCell(row,job.status);const progressCell=addCell(row,`${job.progress}%`);const progress=document.createElement('div');progress.className='firmware-progress';const bar=document.createElement('span');bar.style.width=`${job.progress}%`;progress.appendChild(bar);progressCell.appendChild(progress);const message=addCell(row,job.message||'—');message.appendChild(Object.assign(document.createElement('small'),{textContent:new Date(job.updatedAt).toLocaleString('tr-TR')}));jobList.appendChild(row)});
+
+        if (webUserList) {
+          webUsers=state.webUsers || []; webUserList.replaceChildren();
+          for(const user of webUsers){const row=document.createElement('tr'); const name=addCell(row,user.displayName||user.username); name.appendChild(Object.assign(document.createElement('small'),{textContent:user.username})); addCell(row,user.role==='admin'?'Yönetici':'Kullanıcı'); addCell(row,user.role==='admin'?'Tümü':user.permissions.map((item)=>permissionLabels[item]||item).join(', ')||'Yetki yok'); addCell(row,user.enabled?(user.mustChangePassword?'Etkin / parola değişecek':'Etkin'):'Pasif'); const cell=addCell(row,''); const wrap=document.createElement('div');wrap.className='schedule-actions';[['edit','Düzenle'],['remove','Sil']].forEach(([action,label])=>{const button=document.createElement('button');button.type='button';button.className=action==='remove'?'danger-button compact':'secondary-button';button.dataset.userAction=action;button.dataset.userId=user.id;button.textContent=label;wrap.appendChild(button)});cell.appendChild(wrap);webUserList.appendChild(row);}
+        }
 
         blacklistList.replaceChildren();
         emptyBlacklist.classList.toggle('hidden', state.blacklist.length > 0);
@@ -418,11 +829,26 @@
           if (state.type === 'publishError') {
             sendResult.textContent = state.message;
             sendResult.className = 'result-error';
+            ioCommandResult.textContent = state.message;
+            ioCommandResult.className = 'result-error';
           }
           if (state.type === 'blacklistSuccess' || state.type === 'blacklistError') {
             blacklistResult.textContent = state.message;
             blacklistResult.className = state.type === 'blacklistSuccess' ? 'result-success' : 'result-error';
           }
+          if (state.type === 'scheduledTaskSuccess' || state.type === 'scheduledTaskError') {
+            if (state.type === 'scheduledTaskSuccess') resetScheduleForm();
+            scheduleResult.textContent = state.message;
+            scheduleResult.className = state.type === 'scheduledTaskSuccess' ? 'result-success' : 'result-error';
+          }
+          if (state.type === 'emailNotificationSuccess' || state.type === 'emailNotificationError') {
+            emailResult.textContent = state.message;
+            emailResult.className = state.type === 'emailNotificationSuccess' ? 'result-success' : 'result-error';
+          }
+          if (state.type === 'webUserSuccess' || state.type === 'webUserError') {
+            const result=document.getElementById('web-user-result'); if(result){result.textContent=state.message;result.className=state.type==='webUserSuccess'?'result-success':'result-error';}
+          }
+          if (state.type === 'firmwareError') { const result=document.getElementById('firmware-result');result.textContent=state.message;result.className='result-error'; }
         });
 
         socket.addEventListener('close', () => {
@@ -433,6 +859,8 @@
       }
 
       updatePayload();
+      updateCron();
+      updateSolar();
       connectWebSocket();
     </script>
   </body>
