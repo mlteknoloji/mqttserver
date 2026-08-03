@@ -1,5 +1,9 @@
 # NetRelay MQTT Server
 
+[NetRelay](https://netrelay.tr/) kartı için MQTT server olarak hazırlanmıştır.
+
+MQTT kullanım ayrıntıları için [NetRelay MQTT Kullanım Kılavuzu](https://netrelay.tr/dokumantasyon/mqtt-kullanim-kilavuzu) sayfasını inceleyebilirsiniz.
+
 NetRelay cihazları için hazırlanmış Node.js tabanlı bir MQTT broker, web yönetim paneli ve test istemcisidir. Bağlanan cihazları anlık gösterir, cihaz olaylarını işler ve web panelinden röle açma/kapatma komutları gönderir.
 
 ## Özellikler
