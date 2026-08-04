@@ -107,7 +107,7 @@
         <div class="device-selector"><label>İzlenecek kullanıcı / cihaz<select id="io-device-select"><option value="">Çevrimiçi cihaz seçin</option></select></label><span id="io-last-seen">Cihaz seçilmedi</span></div>
         <div id="io-device-meta" class="io-device-meta">Date Time: —, Voltage: —, Uptime: —, Temperature: —</div>
         <div class="io-visual"><div><h3>Output / röleler</h3><div id="io-relays" class="io-output-grid"></div></div><div><h3>Inputlar</h3><div id="io-inputs" class="io-input-grid"></div></div></div>
-        <div class="raw-json"><div><h3>Son gelen cihaz JSON verisi</h3><button id="io-copy-json" class="secondary-button" type="button">JSON kopyala</button></div><pre id="io-raw-json">Cihazdan henüz JSON verisi alınmadı.</pre></div>
+        <div class="raw-json"><div><h3>Son gelen cihaz JSON verisi</h3><button id="io-copy-json" class="secondary-button" type="button">JSON kopyala</button></div><pre id="io-raw-json" data-i18n-translate>Cihazdan henüz JSON verisi alınmadı.</pre></div>
         <div class="send-row io-result-row"><span id="io-command-result"></span></div>
       </section>
 
@@ -178,7 +178,7 @@
           </label>
 
           <label>
-            Gönderilecek JSON mesajı
+            <span class="json-field-header"><span>Gönderilecek JSON mesajı</span><button id="copy-json-payload" class="secondary-button compact" type="button">Kopyala</button></span>
             <textarea id="json-payload" rows="8" spellcheck="false"></textarea>
           </label>
 
@@ -391,8 +391,8 @@
           const toggle=document.createElement('button');toggle.type='button';toggle.className=`io-switch ${state===1?'active':''}`;toggle.dataset.ioRelay=index+1;toggle.dataset.ioPosition=state===1?0:1;toggle.disabled=!device||!canControl;toggle.setAttribute('aria-label',`Röle ${index+1} ${state===1?'kapat':'aç'}`);const toggleText=document.createElement('span');toggleText.textContent=state===1?'ON':state===0?'OFF':'—';toggle.appendChild(toggleText);output.append(outputLabel,toggle);ioRelays.appendChild(output);
           const input=device?.inputs?.[index];const inputState=input?.io;const inputItem=document.createElement('div');inputItem.className=`io-input ${inputState===1?'active':''}`;const inputLabel=document.createElement('span');inputLabel.className='io-input-label';inputLabel.textContent=input?.name||`INP${index+1}`;const bar=document.createElement('span');bar.className='io-input-bar';const detail=document.createElement('small');detail.textContent=`${inputState===1?'ON':inputState===0?'OFF':'—'} · ${input?.voltage != null&&Number.isFinite(Number(input.voltage))?`${Number(input.voltage).toFixed(2)} V`:'Voltaj —'}`;inputItem.append(inputLabel,bar,detail);ioInputs.appendChild(inputItem);
         }
-        if (!device?.lastJson) ioRawJson.textContent='Cihazdan henüz JSON verisi alınmadı.';
-        else { try { ioRawJson.textContent=JSON.stringify(JSON.parse(device.lastJson),null,2); } catch { ioRawJson.textContent=device.lastJson; } }
+        if (!device?.lastJson) { ioRawJson.setAttribute('data-i18n-translate',''); ioRawJson.textContent='Cihazdan henüz JSON verisi alınmadı.'; }
+        else { ioRawJson.removeAttribute('data-i18n-translate'); try { ioRawJson.textContent=JSON.stringify(JSON.parse(device.lastJson),null,2); } catch { ioRawJson.textContent=device.lastJson; } }
       }
       ioDeviceSelect.addEventListener('change', renderDeviceIo);
       ioRelays.addEventListener('click', (event) => {
@@ -400,7 +400,7 @@
         socket.send(JSON.stringify({type:'publish',targetClientId:device.clientId,payload:JSON.stringify({type:'netrelay',command:'set',targetUsername:device.username,relays:[Number(button.dataset.ioRelay)],position:Number(button.dataset.ioPosition),delay:0})}));
         ioCommandResult.textContent=`Röle ${button.dataset.ioRelay} komutu gönderildi.`;ioCommandResult.className='result-success';
       });
-      document.getElementById('io-copy-json').addEventListener('click', async()=>{try{await navigator.clipboard.writeText(ioRawJson.textContent);ioCommandResult.textContent='JSON panoya kopyalandı.';ioCommandResult.className='result-success';}catch{ioCommandResult.textContent='JSON kopyalanamadı.';ioCommandResult.className='result-error';}});
+      document.getElementById('io-copy-json').addEventListener('click', async()=>{try{await netrelayCopyText(ioRawJson.textContent);ioCommandResult.textContent='JSON panoya kopyalandı.';ioCommandResult.className='result-success';}catch{ioCommandResult.textContent='JSON kopyalanamadı.';ioCommandResult.className='result-error';}});
 
       function applyTheme(theme, persist = true) {
         const light = theme === 'light';
@@ -572,7 +572,7 @@
       sidebarOverlay.addEventListener('click', () => setMenuOpen(false));
       const navGroups = [...document.querySelectorAll('.nav-group')];
       function openNavGroup(group) {
-        navGroups.forEach((item) => item.classList.toggle('collapsed', item !== group));
+        navGroups.forEach((item) => {const open=item===group;item.classList.toggle('collapsed',!open);item.querySelector('.nav-group-title')?.setAttribute('aria-expanded',String(open));});
         if (group) localStorage.setItem('netrelay-nav-group', group.dataset.navGroup);
       }
       navGroups.forEach((group) => group.querySelector('.nav-group-title').addEventListener('click', () => openNavGroup(group)));
@@ -637,6 +637,7 @@
         updatePayload();
       });
 
+      document.getElementById('copy-json-payload').addEventListener('click',async()=>{try{await netrelayCopyText(payloadElement.value);sendResult.textContent='JSON panoya kopyalandı.';sendResult.className='result-success';await netrelayAlert('JSON panoya kopyalandı.','success')}catch{sendResult.textContent='JSON kopyalanamadı.';sendResult.className='result-error';await netrelayAlert('JSON kopyalanamadı.','error')}});
       document.getElementById('send-command').addEventListener('click', () => {
         if (!socket || socket.readyState !== WebSocket.OPEN) {
           sendResult.textContent = 'WebSocket bağlantısı kapalı.';

@@ -1,4 +1,4 @@
-<!doctype html><html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NetRelay Giriş</title><link rel="stylesheet" href="/style.css"></head>
+<!doctype html><html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NetRelay Giriş</title><link rel="stylesheet" href="/style.css"><script src="/i18n.js" defer></script></head>
 <body class="auth-page"><main class="auth-card card"><div class="sidebar-brand"><span>NETRELAY</span><strong>MQTT Server</strong></div><h1>Oturum aç</h1><p>Yönetim paneline erişmek için hesabınızla giriş yapın.</p>
 <% if (error) { %><div class="auth-error"><%= error %></div><% } %>
 <form method="post" action="/login"><label>Kullanıcı adı<input name="username" type="text" autocomplete="username" required autofocus></label><label>Parola<input name="password" type="password" autocomplete="current-password" required></label><button class="send-button" type="submit">Giriş yap</button></form></main></body></html>

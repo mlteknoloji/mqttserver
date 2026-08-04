@@ -1,3 +1,12 @@
+window.netrelayCopyText=async function(value){
+  const text=String(value??'');
+  if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return}
+  const area=document.createElement('textarea');
+  area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.opacity='0';
+  document.body.append(area);
+  try{area.focus();area.select();area.setSelectionRange(0,area.value.length);if(!document.execCommand('copy'))throw new Error('Kopyalama desteklenmiyor.')}finally{area.remove()}
+};
+
 document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.standalone-shell .panel form label > small').forEach(description=>{
     const text=description.textContent.trim();
