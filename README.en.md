@@ -48,6 +48,58 @@ npm start
 
 For a downloaded archive, extract it, open a terminal in the project directory, run `npm install`, create `.env` and `users.json` from the examples, then run `npm start`.
 
+## Docker installation
+
+The ready-to-run image is published to GitHub Container Registry as `ghcr.io/mlteknoloji/mqttserver:latest`. Docker Engine or Docker Desktop with Docker Compose is required on the target machine.
+
+Clone the repository and create the runtime configuration files:
+
+```powershell
+git clone https://github.com/mlteknoloji/mqttserver.git
+cd mqttserver
+Copy-Item .env.example .env
+Copy-Item users.example.json users.json
+```
+
+Replace the example usernames and passwords in `.env` and `users.json` before production use. If the GHCR package is private, sign in with your GitHub username and a Personal Access Token that has `read:packages` permission:
+
+```powershell
+docker login ghcr.io
+```
+
+Pull the image and start the server in the background:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+Check the container, application logs and PM2 process:
+
+```powershell
+docker compose ps
+docker compose logs -f
+docker exec netrelay-mqtt-server pm2 status
+```
+
+The web panel is available at `http://localhost:3000` and the MQTT broker at `mqtt://localhost:1883` by default. The `restart: unless-stopped` setting in `compose.yml` starts the container again after a machine restart, while `pm2-runtime` restarts the application if it exits unexpectedly inside the container.
+
+Update the installation after a new image is published:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+Stop or restart the server with:
+
+```powershell
+docker compose stop
+docker compose restart
+```
+
+To build the Docker image on GitHub, run `githuba_gonder.bat`. After the GitHub push completes, enter `E` at the Docker prompt or press Enter to accept the default `E` choice. Follow the build on the repository's **Actions → Docker imaji** page.
+
 ## Configuration
 
 Typical `.env` values:

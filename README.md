@@ -112,6 +112,58 @@ npm install
 
 `npm install`, programın ihtiyaç duyduğu paketleri `node_modules` klasörüne yükler. İlk kurulumdan sonra, bağımlılıklar değişmediği sürece tekrar çalıştırmanız gerekmez.
 
+## Docker ile kurulum
+
+Hazır imaj GitHub Container Registry üzerinde `ghcr.io/mlteknoloji/mqttserver:latest` adıyla yayımlanır. Kurulum yapılacak makinede Docker Engine veya Docker Desktop ile Docker Compose bulunmalıdır.
+
+Depoyu indirin ve çalışma ayarlarını oluşturun:
+
+```powershell
+git clone https://github.com/mlteknoloji/mqttserver.git
+cd mqttserver
+Copy-Item .env.example .env
+Copy-Item users.example.json users.json
+```
+
+`.env` ve `users.json` içindeki örnek kullanıcı adlarını ve parolaları üretim ortamında kullanmadan önce değiştirin. GHCR paketi private ise GitHub kullanıcı adınız ve `read:packages` yetkili bir Personal Access Token ile giriş yapın:
+
+```powershell
+docker login ghcr.io
+```
+
+İmajı indirin ve sunucuyu arka planda başlatın:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+Konteyner durumunu, uygulama loglarını ve PM2 durumunu kontrol edin:
+
+```powershell
+docker compose ps
+docker compose logs -f
+docker exec netrelay-mqtt-server pm2 status
+```
+
+Web paneli varsayılan olarak `http://localhost:3000`, MQTT broker ise `mqtt://localhost:1883` adresinde çalışır. `compose.yml` içindeki `restart: unless-stopped` ayarı konteyneri makine yeniden başladığında otomatik başlatır; konteyner içinde çalışan `pm2-runtime` uygulama beklenmedik şekilde kapanırsa yeniden çalıştırır.
+
+Yeni imaj yayımlandığında kurulumu güncelleyin:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+Sunucuyu durdurmak veya tekrar başlatmak için:
+
+```powershell
+docker compose stop
+docker compose restart
+```
+
+Docker imajını GitHub üzerinde oluşturmak için `githuba_gonder.bat` dosyasını çalıştırın. GitHub gönderimi tamamlandıktan sonra gelen Docker sorusunda `E` yazın veya varsayılan `E` seçeneğini kabul etmek için yalnızca Enter'a basın. İşlemin tamamlanması GitHub deposundaki **Actions → Docker imaji** sayfasından izlenebilir.
+
 ## Yapılandırma
 
 Programın çalışması için proje ana klasöründe `.env` ve `users.json` dosyaları bulunmalıdır. Dosyalar yoksa örneklerden oluşturun:
