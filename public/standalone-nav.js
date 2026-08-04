@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.standalone-header form[action="/logout"]').forEach((form)=>{if(form.parentElement?.querySelector('.buy-button'))return;const link=document.createElement('a');link.className='buy-button';link.href='https://netrelay.tr/satin-al';link.target='_blank';link.rel='noopener';link.textContent='Satın Al';form.before(link)});
   const groups = [...document.querySelectorAll('.nav-group')];
   const openGroup = (selected) => groups.forEach((group) => {const open=group===selected;group.classList.toggle('collapsed',!open);group.querySelector('.nav-group-title')?.setAttribute('aria-expanded',String(open))});
   groups.forEach((group) => {const title=group.querySelector('.nav-group-title');title?.setAttribute('aria-expanded',String(!group.classList.contains('collapsed')));title?.addEventListener('click',()=>{openGroup(group);localStorage.setItem('netrelay-nav-group',group.dataset.navGroup||'')})});

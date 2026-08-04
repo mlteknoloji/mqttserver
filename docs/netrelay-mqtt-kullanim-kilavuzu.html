@@ -290,8 +290,11 @@
       <a href="#komutlar">Komutlar</a>
       <a href="#olaylar">Olaylar</a>
       <a href="#panel-ozellikleri">Panel özellikleri</a>
+      <a href="#rest-api-mobil">REST API ve mobil</a>
+      <a href="#home-assistant-baglanti">Home Assistant</a>
       <a href="#indirmeler">İndirmeler</a>
       <a href="#sorun-giderme">Sorun giderme</a>
+      <a href="netrelay-mqtt-user-guide-en.html" lang="en">EN</a>
     </nav>
   </header>
 
@@ -331,9 +334,11 @@
       <a href="#komutlar">05 · Röle komutları</a>
       <a href="#olaylar">06 · Input ve röle olayları</a>
       <a href="#panel-ozellikleri">07 · Yönetim paneli</a>
-      <a href="#indirmeler">08 · İndirmeler</a>
-      <a href="#guvenlik">09 · Güvenlik</a>
-      <a href="#sorun-giderme">10 · Sorun giderme</a>
+      <a href="#rest-api-mobil">08 · REST API ve mobil uygulama</a>
+      <a href="#home-assistant-baglanti">09 · Home Assistant bağlantısı</a>
+      <a href="#indirmeler">10 · İndirmeler</a>
+      <a href="#guvenlik">11 · Güvenlik</a>
+      <a href="#sorun-giderme">12 · Sorun giderme</a>
     </aside>
 
     <main>
@@ -546,8 +551,94 @@
         <div class="notice"><div class="notice-icon">i</div><div><strong>Test ve bakım</strong><p>Cron ayrıştırma, olay ayrıştırma, giriş engelleme, değişiklik algılama, çoklu geçmiş filtresi, WebSocket delta ve kalıcı sistem ayarları <code>npm test</code> ile çalışan Node.js testleriyle doğrulanır.</p></div></div>
       </section>
 
+      <section id="rest-api-mobil">
+        <span class="section-index">08 · REST API VE MOBİL UYGULAMA</span>
+        <h2>Mobil uygulamadan güvenli cihaz izleme ve kontrol.</h2>
+        <p class="section-intro">NetRelay REST API v1; Android, iOS, Node-RED ve kuruma özel uygulamaların MQTT ayrıntılarını bilmeden cihazları listelemesini, canlı durumu okumasını ve yetkili röle komutları göndermesini sağlar. Temel adres panel adresinin sonuna <code>/api/v1</code> eklenerek oluşturulur: <code>https://sunucu-adresi/api/v1</code>.</p>
+
+        <div class="notice danger"><div class="notice-icon">!</div><div><strong>API anahtarını parola gibi koruyun</strong><p>Token yalnızca oluşturulduğu anda gösterilir ve sunucuda SHA-256 özeti saklanır. Mobil uygulamada düz metin dosyaya, kaynak koda, Git deposuna veya loglara yazmayın. Android Keystore / EncryptedSharedPreferences ya da iOS Keychain kullanın. Mağazada herkese dağıtılan bir uygulamaya ortak bir API anahtarı gömmeyin; bu senaryoda kendi kimlik doğrulamalı ara sunucunuzu kullanın.</p></div></div>
+
+        <h3>API anahtarı hazırlama</h3>
+        <div class="step"><span class="step-number">1</span><h3>Cihaz grubunu oluşturun</h3><p>Panelde <strong>Kontrol ve Otomasyon → Cihaz Grupları</strong> sayfasına gidin. Mobil uygulamanın görebileceği MQTT kullanıcılarını bir gruba ekleyin.</p></div>
+        <div class="step"><span class="step-number">2</span><h3>Anahtarı sınırlandırın</h3><p><strong>Sistem → REST API</strong> sayfasında anahtar adı, <code>read</code> veya <code>control</code> kapsamı ve erişebileceği cihaz gruplarını seçin. <code>control</code> kapsamı okuma yetkisini de içerir.</p></div>
+        <div class="step"><span class="step-number">3</span><h3>Tokenı güvenli kaydedin</h3><p>Oluşturulan <code>nr_...</code> tokenına tıklayarak kopyalayın. Bu değer daha sonra panelde yeniden görüntülenemez; kaybolursa eski anahtarı silip yenisini oluşturun.</p></div>
+
+        <h3>Kimlik doğrulama ve erişim sınırı</h3>
+        <div class="code-card"><div class="code-head"><span>HTTP istek başlığı</span><button class="copy" type="button">Kopyala</button></div><pre><code>Authorization: Bearer nr_TOKENINIZ</code></pre></div>
+        <p>Alternatif olarak <code>X-API-Key: nr_TOKENINIZ</code> başlığı kullanılabilir. Her anahtar dakikada 120 istekle sınırlandırılır. Anahtar yalnızca seçilen grupları ve bu gruplardaki kartları görür; kapsam dışındaki cihazlar bilgi sızdırmamak için <code>404 Not Found</code> döndürür ve kesinlikle kontrol edilemez.</p>
+
+        <h3>Mobil uygulamada kullanılacak endpointler</h3>
+        <table class="settings-table"><thead><tr><th>İstek</th><th>İşlev</th></tr></thead><tbody>
+          <tr><td><code>GET /health</code></td><td>Token gerektirmeyen sunucu sağlık ve sürüm kontrolü.</td></tr>
+          <tr><td><code>GET /devices</code></td><td>Yalnızca izin verilen gruplardaki çevrimiçi cihaz kartlarını listeler.</td></tr>
+          <tr><td><code>GET /devices/:username</code></td><td>Tek cihazın bağlantı, röle, input, voltaj, sıcaklık ve uptime durumunu getirir.</td></tr>
+          <tr><td><code>GET /history?username=cihaz1&amp;limit=100</code></td><td>İzinli cihazın değişiklik geçmişini getirir. <code>type</code> parametresiyle olay türü filtrelenebilir.</td></tr>
+          <tr><td><code>GET /device-groups</code></td><td>Anahtara atanmış cihaz gruplarını ve üyelerini listeler.</td></tr>
+          <tr><td><code>GET /device-groups/:id</code></td><td>İzin verilen tek bir grubun ayrıntısını getirir.</td></tr>
+          <tr><td><code>POST /devices/:username/relays</code></td><td>Bir veya birden fazla röleyi değiştirir; <code>control</code> kapsamı gerekir.</td></tr>
+          <tr><td><code>POST /devices/:username/sync</code></td><td>Cihazdan güncel durum paketi ister; <code>control</code> kapsamı gerekir.</td></tr>
+          <tr><td><code>POST /devices/:username/restart</code></td><td>Cihazı yeniden başlatır; <code>control</code> kapsamı gerekir.</td></tr>
+          <tr><td><code>POST /device-groups/:id/relays</code></td><td>Gruptaki cihazlara toplu röle komutu yollar; çevrimdışı üyeler isteğe bağlı kuyruğa alınabilir.</td></tr>
+        </tbody></table>
+        <p>Cihaz grubu üyelikleri güvenlik nedeniyle mobil API anahtarıyla değiştirilemez. Grup oluşturma, düzenleme ve silme işlemleri yönetici panelindeki <code>/device-groups</code> sayfasından yapılır.</p>
+
+        <h3>Örnek röle komutu</h3>
+        <div class="code-card"><div class="code-head"><span>POST /api/v1/devices/biga_sube/relays</span><button class="copy" type="button">Kopyala</button></div><pre><code>fetch('https://sunucu-adresi/api/v1/devices/biga_sube/relays', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer nr_TOKENINIZ',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ relays: [1], position: 1, delay: 0 })
+});</code></pre></div>
+        <p><code>relays</code> alanı 1–4 arasındaki röleleri, <code>position</code> değeri <code>0</code> veya <code>1</code> konumunu, <code>delay</code> ise saniye cinsinden gecikmeyi belirtir. Kabul edilen kontrol komutları <code>202 Accepted</code> döndürür.</p>
+
+        <h3>Mobil ekran akışı önerisi</h3>
+        <div class="cards">
+          <article class="card"><span class="card-tag">BAĞLANTI</span><h3>Sunucu ve token ayarı</h3><p>Kullanıcı sunucu URL’sini ve kendisine verilen tokenı bir kez girer. Uygulama önce <code>/health</code>, ardından yetkili <code>/devices</code> isteğiyle bağlantıyı doğrular.</p></article>
+          <article class="card"><span class="card-tag">CİHAZLAR</span><h3>Yetkili kart listesi</h3><p>Listeyi yalnızca API yanıtından üretin. Sunucu grup filtresini zorunlu uygular; uygulama başka MQTT kullanıcı adlarını tahmin ederek istememelidir.</p></article>
+          <article class="card"><span class="card-tag">KONTROL</span><h3>Durum ve röle ekranı</h3><p>Cihaz ayrıntısını düzenli ama ölçülü aralıklarla yenileyin; röle işleminden önce kullanıcı onayı alın ve <code>202</code> yanıtından sonra durumu yeniden sorgulayın.</p></article>
+          <article class="card"><span class="card-tag">HATALAR</span><h3>Kullanıcı dostu geri bildirim</h3><p><code>401</code> token hatası, <code>403</code> yetki eksikliği, <code>404</code> kapsam dışı kaynak, <code>409</code> çevrimdışı cihaz ve <code>429</code> istek sınırı olarak ele alınmalıdır.</p></article>
+        </div>
+
+        <div class="notice"><div class="notice-icon">i</div><div><strong>Canlı güncelleme yaklaşımı</strong><p>Mobil REST API istek/yanıt tabanlıdır; sürekli WebSocket bağlantısı gerektirmez. Cihaz listesi ve durum ekranında makul aralıklı yenileme kullanın, <code>429</code> yanıtında üstel bekleme uygulayın. İnternet üzerinden erişimde panel ve API için geçerli HTTPS sertifikası veya VPN zorunlu tutulmalıdır.</p></div></div>
+        <p>Daha ayrıntılı yanıtlar, grup komutu örnekleri ve Home Assistant bilgileri için proje içindeki <code>docs/REST-API.md</code> dosyasına bakın.</p>
+      </section>
+
+      <section id="home-assistant-baglanti">
+        <span class="section-index">09 · HOME ASSISTANT BAĞLANTISI</span>
+        <h2>Röleleri ve inputları Home Assistant’a otomatik tanıtın.</h2>
+        <p class="section-intro">MQTT Discovery etkinleştirildiğinde her NetRelay kartı Home Assistant’ta tek cihaz olarak görünür; dört röle <code>switch</code>, dört dijital input <code>binary_sensor</code> varlığı olarak otomatik oluşturulur. NetRelay cihazında Home Assistant’a özel bir ayar yapılmaz; cihazın güncel firmware ile kendi MQTT hesabı üzerinden sunucuya bağlı ve event/status mesajlarını yayınlıyor olması yeterlidir.</p>
+
+        <div class="step"><span class="step-number">1</span><h3>Home Assistant MQTT hesabını oluşturun</h3><p>NetRelay panelinde <strong>Sistem → MQTT Kullanıcıları</strong> sayfasını açın. Kullanıcı adı tam olarak <code>homeassistant</code> olan, aktif ve güçlü parolalı ayrı bir hesap oluşturun. Bu hesap kartların kullandığı MQTT hesaplarından farklı olmalıdır.</p></div>
+        <div class="step"><span class="step-number">2</span><h3>MQTT Discovery’yi etkinleştirin</h3><p><strong>Sistem → REST API</strong> sayfasındaki <strong>Home Assistant</strong> kartını açın. <strong>Discovery prefix</strong> için önerilen <code>homeassistant</code> değerini bırakın, MQTT kullanıcısının <code>homeassistant</code> olduğunu doğrulayın, <strong>Discovery etkin</strong> anahtarını açın ve <strong>Kaydet ve yayınla</strong> düğmesine basın.</p></div>
+        <div class="step"><span class="step-number">3</span><h3>Home Assistant MQTT entegrasyonunu ekleyin</h3><p>Home Assistant’ta <strong>Ayarlar → Cihazlar ve servisler → Entegrasyon ekle → MQTT</strong> yolunu izleyin. Broker alanına MQTT sunucusunun IP/hostname bilgisini, port alanına şifresiz yerel bağlantı için <code>1883</code> veya TLS için <code>8883</code> yazın. Kullanıcı adı olarak <code>homeassistant</code>, parola olarak birinci adımda verdiğiniz parolayı kullanın.</p></div>
+        <div class="step"><span class="step-number">4</span><h3>Cihazları ve varlıkları doğrulayın</h3><p>MQTT entegrasyonu açıldıktan sonra <strong>Ayarlar → Cihazlar ve servisler → MQTT</strong> altında <code>NetRelay &lt;kullanıcı&gt;</code> cihazları görünür. Her kartta <code>Relay 1–4</code> anahtarları ve <code>Input 1–4</code> binary sensor varlıkları bulunmalıdır.</p></div>
+
+        <table class="settings-table"><thead><tr><th>Ayar</th><th>Değer / açıklama</th></tr></thead><tbody>
+          <tr><td>Broker</td><td>NetRelay MQTT Server’ın yerel IP adresi veya DNS adı; örnek <code>192.168.1.4</code>.</td></tr>
+          <tr><td>Port</td><td><code>1883</code> MQTT veya sertifika doğrulamalı bağlantı için <code>8883</code> MQTT TLS.</td></tr>
+          <tr><td>Kullanıcı</td><td>Panelde oluşturulan ve Discovery ayarında seçilen <code>homeassistant</code> hesabı.</td></tr>
+          <tr><td>Discovery prefix</td><td>Varsayılan ve önerilen değer <code>homeassistant</code>. Home Assistant tarafındaki discovery prefix ile aynı olmalıdır.</td></tr>
+          <tr><td>Röleler</td><td>Dört adet <code>switch</code>; komutlar cihazın <code>netrelay/&lt;kullanıcı&gt;/command</code> topic’ine QoS 1 ile gönderilir.</td></tr>
+          <tr><td>Inputlar</td><td>Dört adet <code>binary_sensor</code>; anlık input event’i ve periyodik cihaz durumundan güncellenir.</td></tr>
+        </tbody></table>
+
+        <div class="notice"><div class="notice-icon">i</div><div><strong>Topic yetkileri otomatik uygulanır</strong><p>Ayarlanan Home Assistant MQTT hesabına yalnızca Discovery topic aboneliği, NetRelay event aboneliği ve kart command yayını için gereken entegrasyon izinleri verilir. Kartların birbirine ait hesap parolalarını Home Assistant’a eklemeniz gerekmez.</p></div></div>
+        <div class="notice danger"><div class="notice-icon">!</div><div><strong>TLS kullanıyorsanız</strong><p>Home Assistant’a sunucunun CA sertifikasını tanıtın ve bağlandığınız hostname/IP değerinin sertifikanın SAN alanında bulunduğunu doğrulayın. Sertifika doğrulamasını kapatmak yerine doğru CA ve sunucu adını kullanın. Uzak erişimde 1883 portunu internete açmayın; VPN veya TLS tercih edin.</p></div></div>
+
+        <h3>Home Assistant sorun giderme</h3>
+        <table class="settings-table"><thead><tr><th>Belirti</th><th>Çözüm</th></tr></thead><tbody>
+          <tr><td>MQTT bağlantısı reddediliyor</td><td><code>homeassistant</code> hesabının aktif olduğunu, parolayı ve broker portunu kontrol edin. Sunucu loglarında kimlik doğrulama veya blacklist kaydı olup olmadığına bakın.</td></tr>
+          <tr><td>NetRelay cihazları görünmüyor</td><td>Discovery’nin etkin olduğunu ve prefix’in <code>homeassistant</code> olduğunu doğrulayın; panelde yeniden <strong>Kaydet ve yayınla</strong> deyin. MQTT entegrasyonunu yeniden yükleyin.</td></tr>
+          <tr><td>Röle var ama durumu değişmiyor</td><td>Kartın çevrimiçi ve güncel firmware’de olduğunu doğrulayın. Panelde Cihaz I/O ekranından <strong>Durumu Yenile</strong> komutu gönderin ve event topic mesajlarını kontrol edin.</td></tr>
+          <tr><td>Inputlar görünmüyor veya güncellenmiyor</td><td>Cihazın <code>netrelay_device_status</code> ve <code>netrelay_input_event</code> mesajlarını yayınladığını sunucu loglarından doğrulayın. Discovery’yi yeniden yayınlayın.</td></tr>
+          <tr><td>Eski/silinmiş varlıklar kalıyor</td><td>Home Assistant MQTT entegrasyonunda ilgili eski cihazı silin, doğru Discovery ayarını yeniden kaydedin ve kartın yeniden bağlanmasını bekleyin.</td></tr>
+        </tbody></table>
+      </section>
+
       <section id="indirmeler">
-        <span class="section-index">08 · İNDİRMELER</span>
+        <span class="section-index">10 · İNDİRMELER</span>
         <h2>Örnek kod ve güncel firmware.</h2>
         <p class="section-intro">NetRelay MQTT uygulamasını kurmak veya cihaz firmware’ını güncellemek için gerekli paketlere aşağıdan ulaşabilirsiniz.</p>
         <div class="cards">
@@ -573,7 +664,7 @@
       </section>
 
       <section id="guvenlik">
-        <span class="section-index">09 · GÜVENLİK</span>
+        <span class="section-index">11 · GÜVENLİK</span>
         <h2>Saha kontrolünü koruyun.</h2>
         <div class="cards">
           <article class="card"><span class="card-tag">HESAPLAR</span><h3>Her cihaz için ayrı kullanıcı</h3><p>Şubeler arasında hesap paylaşmayın. Uzun, benzersiz parolalar kullanın; hesapları SQLite tabanlı MQTT Kullanıcıları ekranından yönetin. <code>.env</code>, veritabanı ve yedek paketlerini sürüm kontrolüne eklemeyin.</p></article>
@@ -588,7 +679,7 @@
       </section>
 
       <section id="sorun-giderme">
-        <span class="section-index">10 · SORUN GİDERME</span>
+        <span class="section-index">12 · SORUN GİDERME</span>
         <h2>Hızlı kontrol listesi.</h2>
         <table class="settings-table">
           <thead><tr><th>Belirti</th><th>Kontrol</th></tr></thead>

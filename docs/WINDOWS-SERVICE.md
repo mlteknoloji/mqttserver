@@ -1,5 +1,7 @@
 # NetRelay'i Windows servisi olarak çalıştırma
 
+[English](WINDOWS-SERVICE.en.md)
+
 Önerilen yöntem NSSM'dir. Uygulamayı kullanıcı oturumu kapalıyken çalıştırır, hata halinde yeniden başlatır ve Node çıktısını `logs/service-output.log` dosyasına yazar.
 
 ## NSSM kurulumu

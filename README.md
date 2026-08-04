@@ -1,10 +1,16 @@
 # NetRelay MQTT Server
 
+[English documentation](README.en.md)
+
 [NetRelay](https://netrelay.tr/) kartı için MQTT server olarak hazırlanmıştır.
 
 MQTT kullanım ayrıntıları için [NetRelay MQTT Kullanım Kılavuzu](https://netrelay.tr/dokumantasyon/mqtt-kullanim-kilavuzu) sayfasını inceleyebilirsiniz.
 
 NetRelay cihazları için hazırlanmış Node.js tabanlı bir MQTT broker, web yönetim paneli ve test istemcisidir. Bağlanan cihazları anlık gösterir, cihaz olaylarını işler ve web panelinden röle açma/kapatma komutları gönderir.
+
+## Nereden satın alabilirim?
+
+NetRelay ürünlerini resmi satış sayfasından satın alabilirsiniz: **[NetRelay Satın Al](https://netrelay.tr/satin-al)**
 
 ## Özellikler
 
@@ -702,11 +708,11 @@ Bu depoda henüz ayrı bir lisans dosyası bulunmamaktadır.
 Web paneli ilk kurulumda aşağıdaki yönetici hesabını otomatik oluşturur:
 
 - Kullanıcı adı: `admin@mlteknoloji.com`
-- İlk parola: `mltek`
+- İlk parola: Sunucu konsolunda yalnızca bir kez gösterilen güvenli rastgele parola
 
-Bu parola yalnızca ilk giriş içindir. İlk başarılı girişten sonra panel, en az 8 karakterli yeni bir parola belirlenmeden yönetim ekranına erişilmesine izin vermez. Parola değiştirildikten sonra yeniden giriş yapılır.
+Bu parola yalnızca ilk giriş içindir. İlk başarılı girişten sonra panel, güvenlik kurallarına uygun yeni bir parola belirlenmeden yönetim ekranına erişilmesine izin vermez. Parola değiştirildikten sonra yeniden giriş yapılır. İlk parola kaybedilirse varsayılan/sabit bir parola denenmemeli; güvenli yönetici kurtarma süreci uygulanmalıdır.
 
-Yönetici, paneldeki **Kullanıcı Yönetimi** menüsünden yeni hesap oluşturabilir; kullanıcı adı, görünen ad, parola, hesap durumu ve bölüm yetkilerini düzenleyebilir. Verilebilen yetkiler genel bakış, röle komutu, zamanlanmış görevler, e-posta ayarları, MQTT blacklist, sunucu logları ve kullanıcı yönetimidir. Yetki kontrolleri hem arayüzde hem sunucu/WebSocket tarafında uygulanır.
+Yönetici, paneldeki **Kullanıcı Yönetimi** menüsünden yeni hesap oluşturabilir; kullanıcı adı, görünen ad, parola, hesap durumu ve bölüm yetkilerini düzenleyebilir. Verilebilen yetkiler genel bakış, röle komutu, zamanlanmış görevler, e-posta ayarları, MQTT blacklist, sunucu logları ve kullanıcı yönetimidir. Yetki kontrolleri hem arayüzde hem sunucu/WebSocket tarafında uygulanır. Sistemde daima en az bir aktif yönetici kalır; son aktif yönetici silinemez, pasifleştirilemez veya kullanıcı rolüne düşürülemez.
 
 ## MQTT üzerinden firmware güncelleme
 

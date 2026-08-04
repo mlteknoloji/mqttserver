@@ -1,5 +1,7 @@
 # NetRelay REST API v1
 
+[English](REST-API.en.md)
+
 Yönetici panelinde **Sistem → REST API** sayfasından bir API anahtarı oluşturun. Token yalnızca bir kez gösterilir ve sunucuda SHA-256 özeti tutulur.
 
 ```http
@@ -31,6 +33,38 @@ Röle isteği:
 ```
 
 Başarılı komut `202 Accepted` döndürür. Yaygın hata kodları: `INVALID_API_KEY`, `INSUFFICIENT_SCOPE`, `RATE_LIMITED`, `DEVICE_OFFLINE`, `INVALID_COMMAND` ve `PUBLISH_FAILED`.
+
+## Mobil uygulama entegrasyonu
+
+Mobil uygulamada temel adresi `https://sunucu-adresi/api/v1` olarak saklayın. İlk bağlantıda `GET /health`, ardından Bearer token ile `GET /devices` çağrısı yaparak sunucuyu ve anahtarı doğrulayın. Cihaz listesini yalnızca API yanıtından oluşturun; sunucu, anahtarın atanmış grupları dışındaki kartları listelemez ve bu cihazlara yönelik doğrudan istekleri `404 Not Found` ile reddeder.
+
+Önerilen ekran akışı:
+
+1. Sunucu adresi ve API tokenı ayarı
+2. Yetkili çevrimiçi cihazların listesi
+3. Tek cihazın röle, input, voltaj, sıcaklık ve uptime ayrıntısı
+4. Kullanıcı onaylı röle, sync ve restart işlemleri
+5. Cihaz bazlı olay geçmişi
+
+Tokenı kaynak koda, uygulama paketine, düz metin ayar dosyasına veya loglara yazmayın. Android'de Keystore destekli şifreli saklama, iOS'ta Keychain kullanın. Her müşteri/kurulum için ayrı ve en dar cihaz grubuna bağlı anahtar üretin. Herkese açık bir mağaza uygulamasına ortak API anahtarı gömmek güvenli değildir; bu durumda mobil kullanıcı oturumlarını doğrulayan bir ara servis kullanın.
+
+Röle komutu için JavaScript örneği:
+
+```js
+const response = await fetch(`${baseUrl}/devices/biga_sube/relays`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ relays: [1], position: 1, delay: 0 })
+});
+if (response.status === 202) {
+  // Komut kabul edildi; güncel durumu yeniden sorgulayın.
+}
+```
+
+Mobil istemci `401` yanıtında tokenı yeniden istemeli, `403` yanıtında kontrol arayüzünü kapatmalı, `409` yanıtında cihazı çevrimdışı göstermeli ve `429` yanıtında `X-RateLimit-*` başlıklarını dikkate alarak beklemelidir. REST API sürekli bağlantı gerektirmez; ekran görünürken ölçülü durum yenilemesi kullanın ve arka planda gereksiz sorgu yapmayın.
 
 ## Cihaz grupları
 

@@ -53,7 +53,7 @@
           <p class="eyebrow">CANLI YÖNETİM EKRANI</p>
           <h1>MQTT Sunucu Paneli</h1>
         </div>
-        <div class="header-actions"><span class="signed-user"><%= currentUser.displayName || currentUser.username %><small><%= currentUser.username %></small></span><div id="socket-status" class="status offline">Bağlanıyor...</div><form method="post" action="/logout"><button class="secondary-button" type="submit">Çıkış</button></form></div>
+        <div class="header-actions"><span class="signed-user"><%= currentUser.displayName || currentUser.username %><small><%= currentUser.username %></small></span><div id="socket-status" class="status offline">Bağlanıyor...</div><a class="buy-button" href="https://netrelay.tr/satin-al" target="_blank" rel="noopener">Satın Al</a><form method="post" action="/logout"><button class="secondary-button" type="submit">Çıkış</button></form></div>
       </header>
 
       <section id="online-clients" class="card panel page-section">
@@ -69,7 +69,7 @@
               <% onlineClients.forEach((client) => { %>
                 <tr>
                   <td><span class="status-chip up"><span class="online-dot"></span><%= client.status || 'UP' %></span></td>
-                  <td><strong><%= client.hostname || client.username %></strong><small><%= client.username %></small></td>
+                  <td><a class="device-user-link" href="/device-io?client=<%= encodeURIComponent(client.clientId) %>"><strong><%= client.hostname || client.username %></strong><small><%= client.username %></small></a></td>
                   <td><%= client.clientId %><small><%= client.ipAddress || 'IP bekleniyor' %></small></td>
                   <td><%= Math.floor((client.deviceUptimeMs || 0) / 1000) %> sn</td>
                   <td><%= client.lastSeenAt || client.connectedAt %></td>
@@ -721,11 +721,15 @@
           statusCell.appendChild(statusChip);
 
           const userCell = addCell(row, '');
+          const deviceLink = document.createElement('a');
+          deviceLink.className = 'device-user-link';
+          deviceLink.href = `/device-io?client=${encodeURIComponent(client.clientId)}`;
           const displayName = document.createElement('strong');
           displayName.textContent = client.hostname || client.username;
           const username = document.createElement('small');
           username.textContent = client.username;
-          userCell.append(displayName, username);
+          deviceLink.append(displayName, username);
+          userCell.appendChild(deviceLink);
 
           const deviceCell = addCell(row, client.clientId);
           const ip = document.createElement('small');
