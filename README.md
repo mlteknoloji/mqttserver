@@ -148,6 +148,25 @@ docker exec netrelay-mqtt-server pm2 status
 
 Web paneli varsayılan olarak `http://localhost:3000`, MQTT broker ise `mqtt://localhost:1883` adresinde çalışır. `compose.yml` içindeki `restart: unless-stopped` ayarı konteyneri makine yeniden başladığında otomatik başlatır; konteyner içinde çalışan `pm2-runtime` uygulama beklenmedik şekilde kapanırsa yeniden çalıştırır.
 
+Docker kurulumunda portları değiştirmek için `.env` içindeki `MQTT_PORT`, `WEB_PORT`, `MQTT_TLS_PORT` veya `WEB_HTTPS_PORT` değerini düzenleyin. `compose.yml` hem host hem konteyner portunu bu değerlerden alır. Değişikliğin uygulanması için konteyneri yeniden oluşturun:
+
+```powershell
+docker compose up -d --force-recreate
+docker compose ps
+```
+
+Bu kurulumda standart portlar yerine aşağıdaki özelleştirilmiş portlar kullanılmaktadır:
+
+```env
+MQTT_PORT=31883
+WEB_PORT=8082
+MQTT_TLS_PORT=38883
+```
+
+Bu ayarlarla web paneli `http://SUNUCU_IP:8082`, normal MQTT broker `mqtt://SUNUCU_IP:31883` ve TLS etkinse MQTT broker `mqtts://SUNUCU_IP:38883` adresinden erişilebilir. Port değişikliğinden sonra güvenlik duvarındaki izinleri ve NetRelay cihazındaki MQTT/MQTT TLS portlarını aynı değerlere göre güncelleyin. Artık kullanılmayan `1883`, `3000` ve `8883` portlarını internete açık bırakmayın.
+
+Standart dışı port kullanımı otomatik internet taramalarını azaltabilir ancak tek başına bir güvenlik önlemi değildir. Güçlü ve benzersiz parolalar, MQTT TLS, giriş engelleme koruması, güvenlik duvarı IP kısıtlaması veya VPN kullanılması önerilir.
+
 Yeni imaj yayımlandığında kurulumu güncelleyin:
 
 ```powershell

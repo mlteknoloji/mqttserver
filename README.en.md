@@ -84,6 +84,25 @@ docker exec netrelay-mqtt-server pm2 status
 
 The web panel is available at `http://localhost:3000` and the MQTT broker at `mqtt://localhost:1883` by default. The `restart: unless-stopped` setting in `compose.yml` starts the container again after a machine restart, while `pm2-runtime` restarts the application if it exits unexpectedly inside the container.
 
+To change ports in a Docker installation, edit `MQTT_PORT`, `WEB_PORT`, `MQTT_TLS_PORT` or `WEB_HTTPS_PORT` in `.env`. The `compose.yml` file uses these values for both the host and container ports. Recreate the container to apply the change:
+
+```powershell
+docker compose up -d --force-recreate
+docker compose ps
+```
+
+This installation uses the following custom ports instead of the standard ports:
+
+```env
+MQTT_PORT=31883
+WEB_PORT=8082
+MQTT_TLS_PORT=38883
+```
+
+With these settings, the web panel is available at `http://SERVER_IP:8082`, the plain MQTT broker at `mqtt://SERVER_IP:31883`, and the TLS broker at `mqtts://SERVER_IP:38883` when TLS is enabled. After changing the ports, update the firewall rules and the MQTT/MQTT TLS ports configured on every NetRelay device. Do not leave the unused `1883`, `3000` and `8883` ports exposed to the internet.
+
+Non-standard ports may reduce automated internet scanning, but they are not a security control by themselves. Strong unique passwords, MQTT TLS, login protection, firewall IP restrictions or a VPN are recommended.
+
 Update the installation after a new image is published:
 
 ```powershell
