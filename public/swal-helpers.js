@@ -1,4 +1,5 @@
 (function(){
+  const translate=value=>window.netrelayTranslate?window.netrelayTranslate(value):value;
   const themed=options=>({
     background:document.documentElement.dataset.theme==='light'?'#ffffff':'#111827',
     color:document.documentElement.dataset.theme==='light'?'#172033':'#e5e7eb',
@@ -10,11 +11,11 @@
   window.netrelayConfirm=async function(message,options={}){
     const result=await Swal.fire(themed({
       icon:'warning',
-      title:options.title||'İşlemi onaylayın',
-      text:message,
+      title:translate(options.title||'İşlemi onaylayın'),
+      text:translate(message),
       showCancelButton:true,
-      confirmButtonText:options.confirmButtonText||'Evet, devam et',
-      cancelButtonText:'Vazgeç',
+      confirmButtonText:translate(options.confirmButtonText||'Evet, devam et'),
+      cancelButtonText:translate('Vazgeç'),
       reverseButtons:true,
       focusCancel:true
     }));
@@ -22,7 +23,7 @@
   };
 
   window.netrelayAlert=function(message,icon='info',title){
-    return Swal.fire(themed({icon,title:title||(icon==='error'?'Hata':icon==='success'?'Başarılı':'Bilgi'),text:String(message||'')}));
+    return Swal.fire(themed({icon,title:translate(title||(icon==='error'?'Hata':icon==='success'?'Başarılı':'Bilgi')),text:translate(String(message||''))}));
   };
 
   // Eski sayfalardaki senkron confirm çağrılarını da SweetAlert2 üzerinden

@@ -73,4 +73,5 @@
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize);else initialize();
   window.netrelayLanguage=()=>language;
+  window.netrelayTranslate=value=>translated(value);
 })();

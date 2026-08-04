@@ -632,6 +632,14 @@
     "SİSTEM": "SYSTEM",
     "HATA": "ERROR",
     "Menüyü kapat": "Close menu",
+    "Bağlantı hatası": "Connection error",
+    "Bağlantı kesildi": "Disconnected",
+    "Bağlantı kuruluyor...": "Connecting...",
+    "Bağlantı başlatılamadı": "Connection could not be started",
+    "Bağlantı zaman aşımı": "Connection timed out",
+    "Yeniden bağlanıyor...": "Reconnecting...",
+    "Sistemde en az bir aktif yönetici hesabı kalmalıdır.": "At least one active administrator account must remain in the system.",
+    "Kendi hesabınızı silemezsiniz.": "You cannot delete your own account.",
     "Canlı bağlantı aktif": "Live connection active",
     "Sistem Yöneticisi": "System Administrator"
   }

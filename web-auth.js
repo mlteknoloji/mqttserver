@@ -134,6 +134,7 @@ function createWebAuthStore(options) {
     db.prepare('DELETE FROM web_sessions WHERE user_id=?').run(row.id);
   }
   function listUsers() { return db.prepare('SELECT * FROM web_users ORDER BY role DESC, username').all().map(publicUser); }
+  function activeAdminCount() { return Number(db.prepare("SELECT COUNT(*) AS count FROM web_users WHERE role='admin' AND enabled=1").get().count); }
   function saveUser(input, actor) {
     if (actor.role !== 'admin') throw new Error('Bu işlem için yönetici yetkisi gerekir.');
     const id = Number(input.id || 0), username = String(input.username || '').trim(), password = String(input.password || '');
@@ -144,6 +145,7 @@ function createWebAuthStore(options) {
     if (id) {
       const existing = db.prepare('SELECT * FROM web_users WHERE id=?').get(id); if (!existing) throw new Error('Kullanıcı bulunamadı.');
       if (existing.id === actor.id && (role !== 'admin' || input.enabled === false)) throw new Error('Kendi yönetici hesabınızı pasif veya yetkisiz yapamazsınız.');
+      if (existing.role === 'admin' && existing.enabled === 1 && (role !== 'admin' || input.enabled === false) && activeAdminCount() <= 1) throw new Error('Sistemde en az bir aktif yönetici hesabı kalmalıdır.');
       db.prepare(`UPDATE web_users SET username=?,display_name=?,role=?,permissions=?,enabled=?,
         must_change_password=?,updated_at=? WHERE id=?`).run(username, String(input.displayName || '').trim(), role,
         JSON.stringify(permissions), input.enabled === false ? 0 : 1,
@@ -163,6 +165,8 @@ function createWebAuthStore(options) {
   function removeUser(id, actor) {
     if (actor.role !== 'admin') throw new Error('Bu işlem için yönetici yetkisi gerekir.');
     if (Number(id) === actor.id) throw new Error('Kendi hesabınızı silemezsiniz.');
+    const existing=db.prepare('SELECT role,enabled FROM web_users WHERE id=?').get(Number(id));
+    if(existing?.role==='admin'&&existing.enabled===1&&activeAdminCount()<=1)throw new Error('Sistemde en az bir aktif yönetici hesabı kalmalıdır.');
     if (!db.prepare('DELETE FROM web_users WHERE id=?').run(Number(id)).changes) throw new Error('Kullanıcı bulunamadı.');
   }
   function hasPermission(user, permission) { return Boolean(user && (user.role === 'admin' || user.permissions.includes(permission))); }
