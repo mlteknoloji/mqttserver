@@ -92,6 +92,7 @@ function createEmailNotificationStore(options) {
     setMonitorEnabled(username, enabled) { if (!db.prepare('UPDATE email_device_monitors SET enabled=? WHERE username=?').run(enabled ? 1 : 0, String(username)).changes) throw new Error('Cihaz izleme kaydı bulunamadı.'); },
     removeMonitor(username) { if (!db.prepare('DELETE FROM email_device_monitors WHERE username=?').run(String(username)).changes) throw new Error('Cihaz izleme kaydı bulunamadı.'); },
     sendTest: () => send('NetRelay test e-postası', `SMTP ayarlarınız başarıyla çalışıyor.\nTarih: ${new Date().toLocaleString('tr-TR')}`, true),
+    sendRule: (recipients, subject, text) => send(subject, text, false, recipients),
     notifyDevice,
     close: () => db.close()
   };

@@ -12,6 +12,7 @@
       })();
     </script>
     <link rel="stylesheet" href="/style.css">
+    <script src="/state-delta.js"></script>
   </head>
   <body>
     <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menüyü aç" aria-controls="sidebar" aria-expanded="false">☰</button>
@@ -32,7 +33,7 @@
           <a href="/email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="system"><button class="nav-group-title" type="button">SİSTEM <span>⌄</span></button><div class="nav-group-items">
-          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/web-users"><span>♙</span> Kullanıcı Yönetimi</a><% } %>
+          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/web-users"><span>♙</span> Kullanıcı Yönetimi</a><a href="/log-rotation"><span>↻</span> Log Rotasyonu</a><% } %>
         </div></div>
       </nav>
       <div class="sidebar-footer">
@@ -118,6 +119,11 @@
           <strong><%= mqttAddresses.join(', ') || 'IP adresi bulunamadı' %></strong>
         </div>
       </section>
+      <section class="summary dashboard-history-summary">
+        <div class="card"><span>Son 24 saat olay</span><strong id="history-event-count">0</strong></div>
+        <div class="card"><span>Bağlantı / kopma (24 saat)</span><strong id="history-connection-count">0 / 0</strong></div>
+        <div class="card"><span>Ortalama cihaz uptime</span><strong id="history-average-uptime">—</strong></div>
+      </section>
 
       <section id="relay-command" class="card panel relay-panel page-section">
         <div class="panel-title">
@@ -143,22 +149,24 @@
 
           <fieldset>
             <legend>Tetiklenecek röleler</legend>
-            <div class="relay-options">
+            <div class="relay-options relay-ios-grid">
               <% [1, 2, 3, 4].forEach((relay) => { %>
-                <label class="relay-option">
+                <label class="relay-ios-option">
                   <input class="relay-checkbox" type="checkbox" value="<%= relay %>">
-                  Röle <%= relay %>
+                  <span class="relay-ios-number"><%= relay %></span>
+                  <span class="relay-ios-copy"><strong>Röle <%= relay %></strong><small>Kontrole dahil et</small></span>
+                  <span class="relay-ios-switch" aria-hidden="true"></span>
                 </label>
               <% }) %>
-              <button id="select-all" class="secondary-button" type="button">Tümünü seç</button>
+              <button id="select-all" class="secondary-button relay-select-all" type="button">Tümünü Seç</button>
             </div>
           </fieldset>
 
           <fieldset>
             <legend>Buton konumu</legend>
-            <div class="relay-options">
-              <label class="relay-option"><input type="radio" name="position" value="1" checked> 1 (Açık)</label>
-              <label class="relay-option"><input type="radio" name="position" value="0"> 0 (Kapalı)</label>
+            <div class="relay-position-control">
+              <label class="relay-position-option relay-position-on"><input type="radio" name="position" value="1" checked><span><strong>AÇIK</strong><small>Konum 1</small></span></label>
+              <label class="relay-position-option relay-position-off"><input type="radio" name="position" value="0"><span><strong>KAPALI</strong><small>Konum 0</small></span></label>
             </div>
           </fieldset>
 
@@ -275,7 +283,14 @@
           <div class="log-controls">
             <span>Son 200 kayıt</span>
             <label class="toggle-label">
-              <span>Debug Log</span>
+              <span>Terminal Konsol Logları</span>
+              <span class="toggle-switch">
+                <input id="console-log-enabled" type="checkbox">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-label">
+              <span>Ayrıntılı Debug Log</span>
               <span class="toggle-switch">
                 <input id="debug-log-enabled" type="checkbox">
                 <span class="toggle-slider"></span>
@@ -333,6 +348,7 @@
       const sidebarOverlay = document.getElementById('sidebar-overlay');
       const menuLinks = [...document.querySelectorAll('.sidebar-nav a')];
       const debugLogEnabled = document.getElementById('debug-log-enabled');
+      const consoleLogEnabled = document.getElementById('console-log-enabled');
       const themeToggle = document.getElementById('theme-toggle');
       const themeLabel = document.getElementById('theme-label');
       const themeIcon = document.getElementById('theme-icon');
@@ -576,6 +592,11 @@
         socket.send(JSON.stringify({ type: 'debugLoggingSet', enabled: debugLogEnabled.checked }));
       });
 
+      consoleLogEnabled.addEventListener('change',()=>{
+        if(!socket||socket.readyState!==WebSocket.OPEN){consoleLogEnabled.checked=!consoleLogEnabled.checked;return;}
+        socket.send(JSON.stringify({type:'consoleLoggingSet',enabled:consoleLogEnabled.checked}));
+      });
+
       const sectionObserver = new IntersectionObserver((entries) => {
         const visible = entries
           .filter((entry) => entry.isIntersecting)
@@ -600,6 +621,8 @@
           delay: Number(relayDelayElement.value)
         }, null, 2);
         topicElement.value = selectedTarget?.dataset.topic || '';
+        const allSelected=relayCheckboxes.length>0&&relayCheckboxes.every(checkbox=>checkbox.checked);
+        document.getElementById('select-all').textContent=allSelected?'Seçimi Temizle':'Tümünü Seç';
       }
 
       relayCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updatePayload));
@@ -607,7 +630,8 @@
       relayDelayElement.addEventListener('input', updatePayload);
       targetClientElement.addEventListener('change', updatePayload);
       document.getElementById('select-all').addEventListener('click', () => {
-        relayCheckboxes.forEach((checkbox) => { checkbox.checked = true; });
+        const shouldSelect=!relayCheckboxes.every(checkbox=>checkbox.checked);
+        relayCheckboxes.forEach((checkbox) => { checkbox.checked = shouldSelect; });
         updatePayload();
       });
 
@@ -671,7 +695,12 @@
         latestOnlineClients = state.onlineClients;
         applyPermissions(state.currentUser);
         debugLogEnabled.checked = state.debugLoggingEnabled === true;
+        consoleLogEnabled.checked = state.consoleLoggingEnabled === true;
         onlineCount.textContent = state.onlineClients.length;
+        const historyStats=state.historyStats||{events:0,connections:{},averageUptimeMs:0};
+        document.getElementById('history-event-count').textContent=historyStats.events||0;
+        document.getElementById('history-connection-count').textContent=`${historyStats.connections?.connected||0} / ${historyStats.connections?.disconnected||0}`;
+        document.getElementById('history-average-uptime').textContent=formatUptime(historyStats.averageUptimeMs||0);
         onlineList.replaceChildren();
         emptyUsers.classList.toggle('hidden', state.onlineClients.length > 0);
 
@@ -682,7 +711,7 @@
           const row = document.createElement('tr');
           const statusCell = addCell(row, '');
           const statusChip = document.createElement('span');
-          statusChip.className = 'status-chip up';
+          statusChip.className = `status-chip ${client.status === 'STALE' ? 'stale' : 'up'}`;
           const dot = document.createElement('span');
           dot.className = 'online-dot';
           statusChip.append(dot, document.createTextNode(client.status || 'UP'));

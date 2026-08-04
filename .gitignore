@@ -1,6 +1,8 @@
 node_modules/
 firmware-files/
 logs/
+.env
+users.json
 npm-debug.log*
 mqttserver.rar
 githuba_gonder.bat
@@ -9,3 +11,5 @@ security.sqlite3-shm
 security.sqlite3-wal
 certs/*.pem
 certs/*.key
+restore-staging/
+*.pre-restore-*

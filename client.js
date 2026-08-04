@@ -52,7 +52,7 @@ client.on('connect', () => {
     console.log(`Komutlar dinleniyor: ${commandTopic}`);
   });
 
-  client.publish('test/mesaj', 'Merhaba MQTT!', () => {
+  client.publish(`netrelay/${MQTT_USERNAME}/test`, 'Merhaba MQTT!', () => {
     console.log('Mesaj gönderildi.');
     console.log('Bağlantıyı kapatmak için Ctrl+C tuşlarına basın.');
   });

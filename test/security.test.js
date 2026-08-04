@@ -1,0 +1,4 @@
+const test=require('node:test');const assert=require('node:assert/strict');
+const {createSecurityStore}=require('../security');
+test('recordFailure eşikte IP adresini engeller ve sayacı sıfırlar',()=>{const store=createSecurityStore({databasePath:':memory:',maxAttempts:3,findTimeMs:60000,banTimeMs:60000});try{assert.deepEqual(store.recordFailure('::ffff:192.168.1.7'),{banned:false,attempts:1,ip:'192.168.1.7'});assert.equal(store.recordFailure('192.168.1.7').attempts,2);assert.equal(store.recordFailure('192.168.1.7').banned,true);assert.equal(store.isBlacklisted('192.168.1.7'),true);}finally{store.close();}});
+test('recordFailure geçersiz IP adresini yok sayar',()=>{const store=createSecurityStore({databasePath:':memory:'});try{assert.deepEqual(store.recordFailure('not-an-ip'),{banned:false,attempts:0,ip:'not-an-ip'});}finally{store.close();}});

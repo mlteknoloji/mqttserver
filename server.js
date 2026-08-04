@@ -1,9 +1,13 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { applyPendingRestore, createBackup, stageRestore } = require('./backup-manager');
+const appliedRestore = applyPendingRestore({ baseDir: __dirname });
 require('dotenv').config({ quiet: true });
 
 const net = require('node:net');
-const fs = require('node:fs');
-const path = require('node:path');
 const http = require('node:http');
+const https = require('node:https');
 const tls = require('node:tls');
 const os = require('node:os');
 const express = require('express');
@@ -15,18 +19,34 @@ const { createScheduledTaskStore } = require('./scheduled-tasks');
 const { createEmailNotificationStore } = require('./email-notifications');
 const { createWebAuthStore } = require('./web-auth');
 const { createMqttUserStore } = require('./mqtt-users');
+const { createHistoryStore } = require('./history-store');
+const { createRuleEngine } = require('./rule-engine');
+const { createNetgsmStore } = require('./netgsm');
+const { createDeviceAutomationStore } = require('./device-automation');
+const { createLogRotation } = require('./log-rotation');
+const { parseNetRelayEvent } = require('./netrelay-event');
+const { stateChanges } = require('./state-delta');
+const { deviceStateChanges } = require('./device-state-change');
+const { createSystemSettings } = require('./system-settings');
 const { createFirmwareManager, MAX_FIRMWARE_SIZE } = require('./firmware-manager');
 
 const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
 const WEB_PORT = Number(process.env.WEB_PORT) || 3000;
+const WEB_HTTPS_ENABLED = process.env.WEB_HTTPS_ENABLED === '1';
+const WEB_HTTPS_PORT = Number(process.env.WEB_HTTPS_PORT) || 3443;
 const HOST = process.env.HOST || '0.0.0.0';
 const MQTT_TLS_ENABLED = process.env.MQTT_TLS_ENABLED === '1';
 const MQTT_TLS_PORT = Number(process.env.MQTT_TLS_PORT) || 8883;
 const MQTT_TLS_REQUEST_CLIENT_CERT = process.env.MQTT_TLS_REQUEST_CLIENT_CERT === '1';
+// Varsayılan olarak her kullanıcı yalnızca kendi netrelay/<kullanici>/* topic'lerini kullanabilir.
+// Mevcut sistemlerde davranışı gevşetmek için MQTT_TOPIC_ENFORCEMENT=0 yapılabilir.
+const MQTT_TOPIC_ENFORCEMENT = process.env.MQTT_TOPIC_ENFORCEMENT !== '0';
 const FIRMWARE_PUBLIC_BASE_URL = String(process.env.FIRMWARE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const USERS_FILE = path.join(__dirname, 'users.json');
 const STATUS_LOG_DIRECTORY = path.join(__dirname, 'logs');
 const MAX_LOGS = 200;
+const createCommandId = () => randomUUID();
+const DEVICE_STALE_AFTER_MS = (Number(process.env.DEVICE_STALE_AFTER_SECONDS) || 300) * 1000;
 const FAIL2BAN_MAX_ATTEMPTS = Number(process.env.FAIL2BAN_MAX_ATTEMPTS) || 5;
 const FAIL2BAN_FIND_TIME_MINUTES = Number(process.env.FAIL2BAN_FIND_TIME_MINUTES) || 10;
 const FAIL2BAN_BAN_TIME_MINUTES = Number(process.env.FAIL2BAN_BAN_TIME_MINUTES) || 60;
@@ -45,12 +65,21 @@ const emailNotifications = createEmailNotificationStore({ databasePath: SECURITY
 const webAuth = createWebAuthStore({ databasePath: SECURITY_DB_PATH });
 const mqttUsers = createMqttUserStore({ databasePath: SECURITY_DB_PATH, usersFile: USERS_FILE });
 const firmwareManager = createFirmwareManager({ databasePath: SECURITY_DB_PATH, storageDirectory: path.join(__dirname, 'firmware-files') });
+const history = createHistoryStore({ databasePath: SECURITY_DB_PATH, retentionDays: Number(process.env.HISTORY_RETENTION_DAYS) || 90 });
+const rules = createRuleEngine({ databasePath: SECURITY_DB_PATH });
+const netgsm = createNetgsmStore({ databasePath: SECURITY_DB_PATH });
+const deviceAutomation = createDeviceAutomationStore({ databasePath: SECURITY_DB_PATH });
+const logRotation = createLogRotation({ databasePath: SECURITY_DB_PATH, logDirectory: STATUS_LOG_DIRECTORY });
+const systemSettings = createSystemSettings({ databasePath: SECURITY_DB_PATH });
 const firmwareUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FIRMWARE_SIZE } });
+const backupUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 150 * 1024 * 1024 } });
 
 const onlineClients = new Map();
 const logs = [];
 let wss;
-let debugLoggingEnabled = false;
+let debugLoggingEnabled = systemSettings.getBoolean('debug_logging_enabled', false);
+let consoleLoggingEnabled = systemSettings.getBoolean('console_logging_enabled', true);
+let historyStatsCache = { value: history.stats(), updatedAt: Date.now() };
 
 fs.mkdirSync(STATUS_LOG_DIRECTORY, { recursive: true });
 
@@ -69,6 +98,13 @@ function writeDailyStatusLog(event, details = {}) {
   }
 }
 
+function auditSafeDetails(value) {
+  const sensitive = /password|parola|secret|token|certificate|privatekey/i;
+  if (Array.isArray(value)) return value.map(auditSafeDetails);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitive.test(key) ? '[GİZLİ]' : auditSafeDetails(item)]));
+}
+
 function getLocalIpAddresses() {
   return Object.values(os.networkInterfaces())
     .flat()
@@ -76,7 +112,7 @@ function getLocalIpAddresses() {
     .map((address) => address.address);
 }
 
-function parseNetRelayEvent(message, client, topic) {
+function legacyParseNetRelayEventRemoved(message, client, topic) {
   try {
     const event = JSON.parse(message);
     const isRelayEvent =
@@ -186,20 +222,29 @@ function parseNetRelayEvent(message, client, topic) {
 }
 
 function getState(user) {
+  if (Date.now() - historyStatsCache.updatedAt > 30000) historyStatsCache = { value: history.stats(), updatedAt: Date.now() };
   const can = (permission) => webAuth.hasPermission(user, permission);
   return {
     type: 'state',
     onlineClients: can('dashboard') || can('relay') || can('schedules') || can('email') ? Array.from(onlineClients.values()) : [],
     blacklist: can('blacklist') ? security.listBlacklist() : [],
     scheduledTasks: can('schedules') ? scheduledTasks.list() : [],
+    scheduledTaskRuns: can('schedules') ? scheduledTasks.listRuns() : [],
     emailNotifications: can('email') ? emailNotifications.getState() : { settings: {}, monitors: [] },
     firmwareManagement: can('firmware') ? firmwareManager.getState() : { firmwares: [], jobs: [], maxFirmwareSize: MAX_FIRMWARE_SIZE },
     debugLoggingEnabled: can('logs') ? debugLoggingEnabled : false,
+    consoleLoggingEnabled: can('logs') ? consoleLoggingEnabled : false,
     logs: can('logs') ? logs : [],
     currentUser: user || null,
     webUsers: user?.role === 'admin' ? webAuth.listUsers() : [],
     mqttUsers: user?.role === 'admin' ? mqttUsers.list() : [],
-    permissionDefinitions: webAuth.permissions
+    permissionDefinitions: webAuth.permissions,
+    historyStats: can('dashboard') || can('logs') ? historyStatsCache.value : { events: 0, connections: {}, averageUptimeMs: 0 },
+    automationRules: can('schedules') ? rules.list() : [],
+    netgsmSettings: can('email') ? netgsm.getState() : {},
+    deviceGroups: can('relay') ? deviceAutomation.listGroups() : [],
+    commandQueue: can('relay') ? deviceAutomation.listQueue() : [],
+    knownMqttUsernames: can('relay') || can('schedules') ? mqttUsers.list().map(x=>x.username) : []
   };
 }
 
@@ -207,7 +252,12 @@ function broadcastState() {
   if (!wss) return;
 
   for (const socket of wss.clients) {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(getState(socket.authUser)));
+    if (socket.readyState !== WebSocket.OPEN) continue;
+    const next=getState(socket.authUser),previous=socket.lastStateSnapshot;
+    if(!previous){socket.send(JSON.stringify(next));socket.lastStateSnapshot=next;continue;}
+    const changes=stateChanges(previous,next);
+    if(Object.keys(changes).length)socket.send(JSON.stringify({type:'stateDelta',changes}));
+    socket.lastStateSnapshot=next;
   }
 }
 
@@ -221,7 +271,7 @@ function addLog(type, message) {
   logs.unshift(entry);
   if (logs.length > MAX_LOGS) logs.pop();
 
-  console.log(`[${type}] ${message}`);
+  if (consoleLoggingEnabled) console.log(`[${type}] ${message}`);
   broadcastState();
 }
 
@@ -230,6 +280,7 @@ function addDebugLog(message) {
 }
 
 async function startServer() {
+  if (appliedRestore) console.log(`[YEDEK] Geri yükleme uygulandı: ${appliedRestore.databaseTarget}`);
   const broker = await Aedes.createBroker({
     authenticate(client, username, password, callback) {
       const remoteIp = security.normalizeIp(client.conn?.remoteAddress);
@@ -263,6 +314,33 @@ async function startServer() {
       }
 
       callback(null, isValid);
+    },
+
+    authorizePublish(client, packet, callback) {
+      if (packet.topic.startsWith('$SYS/')) return callback(new Error('$SYS topic alanı ayrılmıştır.'));
+      if (client && MQTT_TOPIC_ENFORCEMENT) {
+        const username = client.authenticatedUsername;
+        const prefix = username ? `netrelay/${username}/` : null;
+        if (!prefix || !(packet.topic === `netrelay/${username}` || packet.topic.startsWith(prefix))) {
+          addLog('YETKİ', `Yayın engellendi | Kullanıcı: ${username || client.id} | Topic: ${packet.topic}`);
+          return callback(new Error('Bu topic için yayın yetkiniz yok.'));
+        }
+      }
+      callback(null);
+    },
+
+    authorizeSubscribe(client, subscription, callback) {
+      if (client && MQTT_TOPIC_ENFORCEMENT) {
+        const username = client.authenticatedUsername;
+        const prefix = username ? `netrelay/${username}/` : null;
+        const allowed = prefix && (subscription.topic === `netrelay/${username}` || subscription.topic.startsWith(prefix));
+        if (!allowed) {
+          addLog('YETKİ', `Abonelik engellendi | Kullanıcı: ${username || client.id} | Topic: ${subscription.topic}`);
+          return callback(null, null);
+        }
+        return callback(null, subscription);
+      }
+      callback(null, subscription);
     }
   });
 
@@ -272,20 +350,61 @@ async function startServer() {
     }
   }
 
-  function publishRelayCommand(target, relays, position) {
+  function publishRelayCommand(target, relays, position, delay = 0) {
     const payload = JSON.stringify({
-      type: 'netrelay', command: 'set', targetUsername: target.username,
-      relays, position, delay: 0
+      type: 'netrelay', command: 'set', commandId: createCommandId(), targetUsername: target.username,
+      relays, position, delay
     });
     return new Promise((resolve, reject) => broker.publish({
       cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload),
-      qos: 0, retain: false, dup: false
+      qos: 1, retain: false, dup: false
     }, (error) => error ? reject(error) : resolve(payload)));
+  }
+
+  const ruleMessage = (template, rule, event) => String(template || 'NetRelay kuralı tetiklendi: {{rule}} / {{device}}')
+    .replaceAll('{{rule}}', rule.name).replaceAll('{{device}}', event.mqttUsername || event.username || '')
+    .replaceAll('{{value}}', String(event.io ?? event.temperature ?? event.voltage ?? ''))
+    .replaceAll('{{time}}', new Date().toLocaleString('tr-TR'));
+  async function executeMatchingRules(event) {
+    for (const rule of rules.matching(event)) {
+      rules.mark(rule.id, 'Çalışıyor');
+      try {
+        const results = [], errors = [];
+        for (const action of rule.actions) {
+          try {
+            if (action.type === 'relay') {
+              const target = [...onlineClients.values()].find((item) => item.username.toLowerCase() === action.targetUsername.toLowerCase());
+              if (!target) throw new Error(`Hedef cihaz çevrimdışı: ${action.targetUsername}`);
+              await publishRelayCommand(target, action.relays, action.position, action.delay); results.push('röle');
+            } else if (action.type === 'email') {
+              await emailNotifications.sendRule(action.recipients, ruleMessage(action.subject || `NetRelay kuralı: ${rule.name}`, rule, event), ruleMessage(action.message, rule, event)); results.push('e-posta');
+            } else if (action.type === 'sms') {
+              await netgsm.send(action.recipients, ruleMessage(action.message, rule, event)); results.push('SMS');
+            }
+          } catch (error) { errors.push(`${action.type}: ${error.message}`); }
+        }
+        const summary = `${results.length ? `Başarılı: ${results.join(', ')}` : ''}${errors.length ? `${results.length ? ' | ' : ''}Hata: ${errors.join('; ')}` : ''}`;
+        rules.mark(rule.id, summary); addLog(errors.length ? 'HATA' : 'KURAL', `${rule.name}: ${summary}`);
+      } catch (error) { rules.mark(rule.id, `Hata: ${error.message}`); addLog('HATA', `Kural “${rule.name}”: ${error.message}`); }
+      broadcastState();
+    }
+  }
+
+  async function deliverQueuedCommands(target) {
+    for (const queued of deviceAutomation.pending(target.username)) {
+      try {
+        const queuedPayload={...queued.payload,commandId:queued.payload.commandId||createCommandId()};
+        await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:target.commandTopic,payload:Buffer.from(JSON.stringify(queuedPayload)),qos:1,retain:false,dup:false},error=>error?reject(error):resolve()));
+        deviceAutomation.markDelivered(queued.id); addLog('KUYRUK', `${target.username} için kuyruktaki #${queued.id} komutu gönderildi.`);
+      } catch(error){deviceAutomation.markFailed(queued.id,error.message);addLog('HATA',`Kuyruk #${queued.id}: ${error.message}`);break;}
+    }
+    broadcastState();
   }
 
   scheduledTasks.start(async (task) => {
     const target = [...onlineClients.values()].find((client) => client.username === task.targetUsername);
     if (!target) {
+      if(task.runWhenOnline){const payload={type:'netrelay',command:'set',targetUsername:task.targetUsername,relays:task.relays,position:task.position,delay:task.restoreSeconds};const id=deviceAutomation.enqueue(task.targetUsername,payload,`schedule:${task.id}`);addLog('KUYRUK',`“${task.name}” çevrimdışı cihaz için kuyruğa alındı (#${id}).`);return `Kuyruğa alındı (#${id})`;}
       addLog('ZAMANLAYICI', `“${task.name}” çalışmadı: ${task.targetUsername} çevrimdışı.`);
       setImmediate(broadcastState);
       return 'Hedef cihaz çevrimdışı';
@@ -334,11 +453,31 @@ async function startServer() {
     mqttTlsServer = tls.createServer(tlsOptions, broker.handle);
   }
   const app = express();
-  const webServer = http.createServer(app);
+  let webServer;
+  if (WEB_HTTPS_ENABLED) {
+    if (!process.env.WEB_HTTPS_KEY || !process.env.WEB_HTTPS_CERT) {
+      throw new Error('WEB_HTTPS_ENABLED=1 için WEB_HTTPS_KEY ve WEB_HTTPS_CERT zorunludur.');
+    }
+    webServer = https.createServer({
+      key: fs.readFileSync(path.resolve(__dirname, process.env.WEB_HTTPS_KEY)),
+      cert: fs.readFileSync(path.resolve(__dirname, process.env.WEB_HTTPS_CERT)),
+      minVersion: 'TLSv1.2',
+      ...(process.env.WEB_HTTPS_CA ? { ca: fs.readFileSync(path.resolve(__dirname, process.env.WEB_HTTPS_CA)) } : {})
+    }, app);
+  } else {
+    webServer = http.createServer(app);
+  }
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
   app.use(express.urlencoded({ extended: false }));
+  app.use((request, response, next) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
   app.use(express.static(path.join(__dirname, 'public')));
   app.get('/favicon.ico', (request, response) => response.redirect(301, '/favicon.svg'));
 
@@ -348,9 +487,18 @@ async function startServer() {
     response.render('login', { error: '' });
   });
   app.post('/login', (request, response) => {
-    const result = webAuth.login(request.body.username, request.body.password);
-    if (!result) return response.status(401).render('login', { error: 'Kullanıcı adı veya parola yanlış.' });
-    response.setHeader('Set-Cookie', webAuth.cookie(result.token));
+    const result = webAuth.login(request.body.username, request.body.password, request.socket?.remoteAddress);
+    if (!result.ok) {
+      addLog(
+        'GİRİŞ',
+        `Başarısız web paneli girişi | IP: ${security.normalizeIp(request.socket?.remoteAddress) || 'bilinmiyor'}${result.locked ? ' | Kilitli IP denemesi' : ''}`
+      );
+      return response.status(result.locked ? 429 : 401)
+        .render('login', { error: result.message || 'Kullanıcı adı veya parola yanlış.' });
+    }
+    addLog('GİRİŞ', `Web paneli girişi | Kullanıcı: ${result.user.username} | IP: ${security.normalizeIp(request.socket?.remoteAddress) || 'bilinmiyor'}`);
+    const secureCookie = request.socket.encrypted || String(request.headers['x-forwarded-proto']).split(',')[0].trim() === 'https';
+    response.setHeader('Set-Cookie', webAuth.cookie(result.token, secureCookie));
     response.redirect(result.user.mustChangePassword ? '/change-password' : '/');
   });
   app.get('/change-password', (request, response) => {
@@ -410,6 +558,42 @@ async function startServer() {
   app.get('/firmware-management', renderProtectedPage('firmware-management', 'firmware'));
   app.get('/mqtt-blacklist', renderProtectedPage('mqtt-blacklist', 'blacklist'));
   app.get('/email-notifications', renderProtectedPage('email-notifications', 'email'));
+  app.get('/history',(request,response)=>{const user=webAuth.fromRequest(request);if(!user)return response.redirect('/login');if(user.mustChangePassword)return response.redirect('/change-password');if(!webAuth.hasPermission(user,'logs'))return response.status(403).send('Bu sayfaya erişim yetkiniz yok.');response.render('history',{currentUser:user,mqttUsernames:mqttUsers.list().map(x=>x.username).sort((a,b)=>a.localeCompare(b,'tr'))});});
+  app.get('/automation-rules', renderProtectedPage('automation-rules', 'schedules'));
+  app.get('/device-groups', renderProtectedPage('device-groups', 'relay'));
+  app.get('/sms-settings', renderProtectedPage('sms-settings', 'email'));
+  app.get('/backup-restore', (request,response)=>{const user=webAuth.fromRequest(request);if(!user)return response.redirect('/login');if(user.mustChangePassword)return response.redirect('/change-password');if(user.role!=='admin')return response.status(403).send('Bu sayfa yalnızca yöneticilere açıktır.');response.render('backup-restore',{currentUser:user});});
+  const requireAdminApi=(request,response,next)=>{const user=webAuth.fromRequest(request);if(!user||user.mustChangePassword)return response.status(401).json({error:'Oturum gerekli.'});if(user.role!=='admin')return response.status(403).json({error:'Yönetici yetkisi gerekli.'});request.authUser=user;next();};
+  app.get('/log-rotation',requireAdminApi,(request,response)=>response.render('log-rotation',{currentUser:request.authUser}));
+  app.get('/api/log-rotation',requireAdminApi,(request,response)=>response.json(logRotation.getSettings()));
+  app.put('/api/log-rotation',requireAdminApi,express.json(),(request,response)=>{try{const settings=logRotation.saveSettings(request.body||{});history.addAudit({actor:request.authUser.username,action:'logRotationSettingsSave',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:settings});response.json({message:'Log rotasyonu ayarları kaydedildi.',settings});}catch(error){response.status(400).json({error:error.message});}});
+  app.post('/api/log-rotation/run',requireAdminApi,(request,response)=>{try{const result=logRotation.run(true);history.addAudit({actor:request.authUser.username,action:'logRotationRun',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:result});response.json({message:`Rotasyon tamamlandı: ${result.archived} dosya arşivlendi, ${result.deleted} dosya silindi.`,result});}catch(error){response.status(500).json({error:error.message});}});
+  app.get('/api/backup',requireAdminApi,async(request,response)=>{try{const buffer=await createBackup({databasePath:SECURITY_DB_PATH,envPath:path.join(__dirname,'.env')});history.addAudit({actor:request.authUser.username,action:'backupDownload',remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.setHeader('Content-Type','application/gzip');response.setHeader('Content-Disposition',`attachment; filename="netrelay-backup-${localDateKey()}.netrelay-backup.gz"`);response.send(buffer);}catch(error){response.status(500).json({error:error.message});}});
+  app.post('/api/restore',requireAdminApi,backupUpload.single('backup'),(request,response)=>{try{if(!request.file)throw new Error('Yedek dosyası seçilmedi.');if(SECURITY_DB_PATH===':memory:')throw new Error('Bellek içi veritabanına geri yükleme yapılamaz.');const result=stageRestore({buffer:request.file.buffer,baseDir:__dirname,databaseTarget:SECURITY_DB_PATH,envTarget:path.join(__dirname,'.env'),restoreEnv:request.body.restoreEnv!=='false'});history.addAudit({actor:request.authUser.username,action:'restoreStaged',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{backupCreatedAt:result.createdAt,restoreEnv:result.restoreEnv}});response.json({message:'Yedek doğrulandı ve geri yükleme için hazırlandı. Sunucuyu yeniden başlatın.',restartRequired:true,...result});}catch(error){response.status(400).json({error:error.message});}});
+  function historyApi(request, response, next) {
+    const user = webAuth.fromRequest(request);
+    if (!user || user.mustChangePassword) return response.status(401).json({ error: 'Oturum gerekli.' });
+    if (!webAuth.hasPermission(user, 'logs')) return response.status(403).json({ error: 'Geçmiş kayıtlarını görüntüleme yetkiniz yok.' });
+    request.authUser = user; next();
+  }
+  const historyQuery = (query) => ({ usernames: Array.isArray(query.username) ? query.username : query.username ? [query.username] : [], type: query.type,
+    from: query.from ? Date.parse(query.from) : undefined, to: query.to ? Date.parse(query.to) + 86399999 : undefined,
+    limit: query.limit });
+  app.get('/api/history', historyApi, (request, response) => {
+    const query = historyQuery(request.query);
+    response.json({ events: history.listEvents(query), connections: history.listConnections({ ...query, type: undefined }),
+      audit: history.listAudit({ actor: request.query.actor, from: query.from, to: query.to, limit: query.limit }), stats: history.stats() });
+  });
+  app.get('/api/history/events.csv', historyApi, (request, response) => {
+    const columns = ['occurred_at','event_type','username','client_id','channel','value','hostname','ip_address','uptime_ms','payload'];
+    const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = history.listEvents({ ...historyQuery(request.query), limit: 2000 });
+    const csv = ['Zaman,Tür,Kullanıcı,Client ID,Kanal,Değer,Hostname,IP,Uptime (ms),Payload',
+      ...rows.map((row) => columns.map((column) => escape(column === 'occurred_at' ? new Date(row[column]).toISOString() : row[column])).join(','))].join('\r\n');
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', `attachment; filename="netrelay-events-${localDateKey()}.csv"`);
+    response.send(`\uFEFF${csv}`);
+  });
   app.get('/web-users', (request, response) => {
     const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
     if (user.mustChangePassword) return response.redirect('/change-password');
@@ -430,22 +614,30 @@ async function startServer() {
   }});
   wss.on('connection', (socket, request) => {
     socket.authUser = request.authUser;
-    socket.publicBaseUrl = `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
-    socket.send(JSON.stringify(getState(socket.authUser)));
+    socket.publicBaseUrl = `${request.headers['x-forwarded-proto'] || (request.socket.encrypted ? 'https' : 'http')}://${request.headers.host}`;
+    socket.remoteIp = security.normalizeIp(request.socket?.remoteAddress);
+    const initialState=getState(socket.authUser);
+    socket.send(JSON.stringify(initialState));
+    socket.lastStateSnapshot=initialState;
 
     socket.on('message', async (rawMessage) => {
       let request;
       try {
         request = JSON.parse(rawMessage.toString());
         const requiredPermissions = {
-          publish: 'relay', restartDevice: 'relay', scheduledTaskSave: 'schedules', scheduledTaskEnabled: 'schedules', scheduledTaskRemove: 'schedules',
+          publish: 'relay', restartDevice: 'relay', syncDevice: 'dashboard', scheduledTaskSave: 'schedules', scheduledTaskEnabled: 'schedules', scheduledTaskRemove: 'schedules',
           firmwareUpdateStart: 'firmware', firmwareRemove: 'firmware',
           emailSettingsSave: 'email', emailMonitorSave: 'email', emailMonitorEnabled: 'email', emailMonitorRemove: 'email', emailSendTest: 'email',
-          blacklistAdd: 'blacklist', blacklistRemove: 'blacklist', debugLoggingSet: 'logs', webUserSave: 'users', webUserRemove: 'users',
+          netgsmSettingsSave: 'email', netgsmSendTest: 'email', automationRuleSave: 'schedules', automationRuleEnabled: 'schedules', automationRuleRemove: 'schedules',
+          deviceGroupSave: 'relay', deviceGroupRemove: 'relay', deviceGroupCommand: 'relay', queuedCommandRemove: 'relay',
+          blacklistAdd: 'blacklist', blacklistRemove: 'blacklist', debugLoggingSet: 'logs', consoleLoggingSet: 'logs', webUserSave: 'users', webUserRemove: 'users',
           mqttUserSave: 'users', mqttUserEnabled: 'users', mqttUserRemove: 'users'
         };
         const requiredPermission = requiredPermissions[request.type];
         if (requiredPermission && !webAuth.hasPermission(socket.authUser, requiredPermission)) throw new Error('Bu işlem için yetkiniz yok.');
+        if (requiredPermission) history.addAudit({ actor: socket.authUser.username, action: request.type,
+          target: request.targetClientId || request.username || request.id || request.user?.username || request.task?.targetUsername || '',
+          remoteIp: socket.remoteIp, details: auditSafeDetails(request) });
 
         if (request.type === 'webUserSave') {
           const id = webAuth.saveUser(request.user || {}, socket.authUser);
@@ -491,7 +683,7 @@ async function startServer() {
           if (new Set(targets.map((target) => target.username)).size !== targets.length) throw new Error('Aynı MQTT kullanıcısına ait birden fazla bağlantı birlikte seçilemez.');
           for (const target of targets) {
             const created = firmwareManager.createJob(request.firmwareId, target);
-            const command = JSON.stringify({ type: 'netrelay', command: 'firmware_update', targetUsername: target.username,
+            const command = JSON.stringify({ type: 'netrelay', command: 'firmware_update', commandId: createCommandId(), targetUsername: target.username,
               jobId: created.job.id, version: created.firmware.version, hardware: created.firmware.hardware,
               url: `${FIRMWARE_PUBLIC_BASE_URL || socket.publicBaseUrl}/firmware/download/${created.token}`, size: created.firmware.size, sha256: created.firmware.sha256 });
             broker.publish({ cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(command), qos: 1, retain: false, dup: false }, (error) => {
@@ -506,7 +698,15 @@ async function startServer() {
 
         if (request.type === 'debugLoggingSet') {
           debugLoggingEnabled = request.enabled === true;
+          systemSettings.setBoolean('debug_logging_enabled',debugLoggingEnabled);
           addLog('SİSTEM', `Ayrıntılı bağlantı logları ${debugLoggingEnabled ? 'açıldı' : 'kapatıldı'}.`);
+          return;
+        }
+
+        if(request.type==='consoleLoggingSet'){
+          consoleLoggingEnabled=request.enabled===true;
+          systemSettings.setBoolean('console_logging_enabled',consoleLoggingEnabled);
+          addLog('SİSTEM',`Terminal konsol çıktısı ${consoleLoggingEnabled?'açıldı':'kapatıldı'}.`);
           return;
         }
 
@@ -575,16 +775,43 @@ async function startServer() {
           socket.send(JSON.stringify({ type: 'emailNotificationSuccess', message: 'Test e-postası gönderildi.' }));
           return;
         }
+        if (request.type === 'netgsmSettingsSave') {
+          netgsm.save(request.settings || {}); socket.send(JSON.stringify({ type: 'netgsmSuccess', message: 'Netgsm ayarları kaydedildi.' })); broadcastState(); return;
+        }
+        if (request.type === 'netgsmSendTest') {
+          const result = await netgsm.sendTest(request.number); socket.send(JSON.stringify({ type: 'netgsmSuccess', message: `Test SMS kuyruğa alındı. Görev: ${result.jobid}` })); return;
+        }
+        if (request.type === 'automationRuleSave') {
+          const id = rules.save(request.rule || {}); socket.send(JSON.stringify({ type: 'automationRuleSuccess', message: `Kural kaydedildi (#${id}).` })); broadcastState(); return;
+        }
+        if (request.type === 'automationRuleEnabled') { rules.setEnabled(request.id, request.enabled === true); broadcastState(); return; }
+        if (request.type === 'automationRuleRemove') { rules.remove(request.id); socket.send(JSON.stringify({ type: 'automationRuleSuccess', message: 'Kural silindi.' })); broadcastState(); return; }
+        if(request.type==='deviceGroupSave'){const id=deviceAutomation.saveGroup(request.group||{});socket.send(JSON.stringify({type:'deviceGroupSuccess',message:`Cihaz grubu kaydedildi (#${id}).`}));broadcastState();return;}
+        if(request.type==='deviceGroupRemove'){deviceAutomation.removeGroup(request.id);socket.send(JSON.stringify({type:'deviceGroupSuccess',message:'Cihaz grubu silindi.'}));broadcastState();return;}
+        if(request.type==='queuedCommandRemove'){deviceAutomation.removeQueued(request.id);broadcastState();return;}
+        if(request.type==='deviceGroupCommand'){
+          const group=deviceAutomation.listGroups().find(x=>x.id===Number(request.groupId));if(!group)throw new Error('Cihaz grubu bulunamadı.');const relays=[...new Set((request.relays||[]).map(Number))],position=Number(request.position),delay=Number(request.delay||0);if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>4)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0)throw new Error('Grup röle komutu geçersiz.');let sent=0,queued=0;for(const username of group.members){const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===username.toLowerCase()),payload={type:'netrelay',command:'set',targetUsername:username,relays,position,delay};if(target){await publishRelayCommand(target,relays,position,delay);sent++;}else if(request.queueOffline===true){deviceAutomation.enqueue(username,payload,`group:${group.id}`);queued++;}}socket.send(JSON.stringify({type:'deviceGroupSuccess',message:`${sent} cihaza gönderildi, ${queued} komut kuyruğa alındı.`}));broadcastState();return;}
 
         if (request.type === 'restartDevice') {
           const target = onlineClients.get(String(request.targetClientId || ''));
           if (!target) throw new Error('Seçilen cihaz artık çevrimiçi değil.');
-          const payload = JSON.stringify({ type: 'netrelay', command: 'restart', targetUsername: target.username });
+          const payload = JSON.stringify({ type: 'netrelay', command: 'restart', commandId: createCommandId(), targetUsername: target.username });
           await new Promise((resolve, reject) => broker.publish({
             cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload), qos: 1, retain: false, dup: false
           }, (error) => error ? reject(error) : resolve()));
           addLog('KOMUT', `${target.username} cihazına yeniden başlatma komutu gönderildi.`);
           socket.send(JSON.stringify({ type: 'restartDeviceSuccess', message: 'Yeniden başlatma komutu gönderildi.' }));
+          return;
+        }
+        if (request.type === 'syncDevice') {
+          const target = onlineClients.get(String(request.targetClientId || ''));
+          if (!target) throw new Error('Seçilen cihaz artık çevrimiçi değil.');
+          const payload = JSON.stringify({ type: 'netrelay', command: 'sync', commandId: createCommandId(), targetUsername: target.username });
+          await new Promise((resolve, reject) => broker.publish({
+            cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload), qos: 1, retain: false, dup: false
+          }, (error) => error ? reject(error) : resolve()));
+          addLog('KOMUT', `${target.username} cihazından güncel durum istendi.`);
+          socket.send(JSON.stringify({ type: 'syncDeviceSuccess', message: 'Durum yenileme isteği gönderildi.' }));
           return;
         }
 
@@ -615,6 +842,7 @@ async function startServer() {
 
         payload.relays = [...new Set(payload.relays)];
         payload.delay = delay;
+        payload.commandId = createCommandId();
         const jsonPayload = JSON.stringify(payload);
         const topic = target.commandTopic;
 
@@ -623,7 +851,7 @@ async function startServer() {
             cmd: 'publish',
             topic,
             payload: Buffer.from(jsonPayload),
-            qos: 0,
+            qos: 1,
             retain: false,
             dup: false
           },
@@ -637,7 +865,7 @@ async function startServer() {
           }
         );
       } catch (error) {
-        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : request?.type?.startsWith('scheduledTask') ? 'scheduledTaskError' : request?.type?.startsWith('email') ? 'emailNotificationError' : request?.type?.startsWith('webUser') ? 'webUserError' : request?.type?.startsWith('mqttUser') ? 'mqttUserError' : request?.type?.startsWith('restartDevice') ? 'restartDeviceError' : request?.type?.startsWith('firmware') ? 'firmwareError' : 'publishError';
+        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : request?.type?.startsWith('scheduledTask') ? 'scheduledTaskError' : request?.type?.startsWith('deviceGroup') || request?.type?.startsWith('queuedCommand') ? 'deviceGroupError' : request?.type?.startsWith('automationRule') ? 'automationRuleError' : request?.type?.startsWith('netgsm') ? 'netgsmError' : request?.type?.startsWith('email') ? 'emailNotificationError' : request?.type?.startsWith('webUser') ? 'webUserError' : request?.type?.startsWith('mqttUser') ? 'mqttUserError' : request?.type?.startsWith('restartDevice') ? 'restartDeviceError' : request?.type?.startsWith('syncDevice') ? 'syncDeviceError' : request?.type?.startsWith('firmware') ? 'firmwareError' : 'publishError';
         socket.send(JSON.stringify({ type, message: error.message }));
       }
     });
@@ -655,7 +883,8 @@ async function startServer() {
       hostname: '',
       ipAddress: '',
       lastSeenAt: new Date().toLocaleString('tr-TR'),
-      connectedAt: new Date().toLocaleString('tr-TR')
+      connectedAt: new Date().toLocaleString('tr-TR'),
+      connectedAtMs: Date.now(), lastStatusAt: null
     });
     addLog(
       'BAĞLANDI',
@@ -665,6 +894,8 @@ async function startServer() {
       username: client.authenticatedUsername, clientId: client.id,
       remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     });
+    history.addConnection('connected', client, { remoteIp: security.normalizeIp(client.conn?.remoteAddress) });
+    deliverQueuedCommands(onlineClients.get(client.id)).catch(error=>addLog('HATA',`Kuyruk teslimi: ${error.message}`));
     if (!usernameWasOnline) emailNotifications.notifyDevice(client.authenticatedUsername, true, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     }).then((sent) => { if (sent) addLog('E-POSTA', `${client.authenticatedUsername} aktif bildirimi gönderildi.`); })
@@ -681,6 +912,7 @@ async function startServer() {
       username: client.authenticatedUsername || 'bilinmiyor', clientId: client.id,
       remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     });
+    history.addConnection('disconnected', client, { remoteIp: security.normalizeIp(client.conn?.remoteAddress) });
     const usernameStillOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
     if (!usernameStillOnline) emailNotifications.notifyDevice(client.authenticatedUsername, false, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
@@ -702,7 +934,10 @@ async function startServer() {
 
     if (netRelayEvent?.type === 'netrelay_device_status') {
       const currentClient = onlineClients.get(client.id);
+      const changedFields = deviceStateChanges(currentClient, netRelayEvent);
+      if (changedFields.length) history.addEvent({ ...netRelayEvent, changedFields }, message);
       if (currentClient) {
+        if (currentClient.status === 'STALE') history.addConnection('recovered', currentClient, { reason: 'status_message_received' });
         onlineClients.set(client.id, {
           ...currentClient,
           status: 'UP',
@@ -715,17 +950,20 @@ async function startServer() {
           relays: netRelayEvent.relays,
           inputs: netRelayEvent.inputs,
           lastJson: message,
-          lastEventAt: new Date().toISOString()
+          lastEventAt: new Date().toISOString(),
+          lastStatusAt: Date.now()
         });
         broadcastState();
       }
-      console.log(
+      if (consoleLoggingEnabled) console.log(
         `[DEVICE_STATUS] Kullanıcı: ${client.authenticatedUsername} | Client ID: ${client.id} | Uptime: ${netRelayEvent.deviceUptimeMs} ms`
       );
+      executeMatchingRules(netRelayEvent).catch((error) => addLog('HATA', `Kural motoru: ${error.message}`));
       return;
     }
 
     if (netRelayEvent?.type === 'netrelay_input_event') {
+      history.addEvent(netRelayEvent, message);
       const currentClient = onlineClients.get(client.id);
       if (currentClient) {
         const inputs = Array.from({ length: 4 }, (_, index) => currentClient.inputs?.[index] || { input: index + 1, name: `input${index + 1}`, io: null, voltage: 0 });
@@ -733,8 +971,10 @@ async function startServer() {
         onlineClients.set(client.id, { ...currentClient, inputs, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
         broadcastState();
       }
+      executeMatchingRules(netRelayEvent).catch((error) => addLog('HATA', `Kural motoru: ${error.message}`));
     }
     if (netRelayEvent?.type === 'netrelay_relay_event') {
+      history.addEvent(netRelayEvent, message);
       const currentClient = onlineClients.get(client.id);
       if (currentClient) {
         const relays = Array.isArray(currentClient.relays) ? [...currentClient.relays] : [null, null, null, null];
@@ -750,7 +990,7 @@ async function startServer() {
     );
 
     if (netRelayEvent) {
-      console.log(`[NETRELAY_JSON] ${JSON.stringify(netRelayEvent)}`);
+      if (consoleLoggingEnabled) console.log(`[NETRELAY_JSON] ${JSON.stringify(netRelayEvent)}`);
     }
   });
 
@@ -800,11 +1040,13 @@ async function startServer() {
     });
   }
 
-  webServer.listen(WEB_PORT, HOST, () => {
-    writeDailyStatusLog('SERVER_UP', { webPort: WEB_PORT, mqttPort: MQTT_PORT, mqttTlsPort: MQTT_TLS_ENABLED ? MQTT_TLS_PORT : null });
-    addLog('SİSTEM', `Web paneli tüm ağlarda çalışıyor: ${HOST}:${WEB_PORT}`);
+  const activeWebPort = WEB_HTTPS_ENABLED ? WEB_HTTPS_PORT : WEB_PORT;
+  const webScheme = WEB_HTTPS_ENABLED ? 'https' : 'http';
+  webServer.listen(activeWebPort, HOST, () => {
+    writeDailyStatusLog('SERVER_UP', { webPort: activeWebPort, webHttps: WEB_HTTPS_ENABLED, mqttPort: MQTT_PORT, mqttTlsPort: MQTT_TLS_ENABLED ? MQTT_TLS_PORT : null });
+    addLog('SİSTEM', `Web paneli tüm ağlarda çalışıyor: ${HOST}:${activeWebPort} (${webScheme.toUpperCase()})`);
     for (const ip of getLocalIpAddresses()) {
-      addLog('SİSTEM', `Web paneli adresi: http://${ip}:${WEB_PORT}`);
+      addLog('SİSTEM', `Web paneli adresi: ${webScheme}://${ip}:${activeWebPort}`);
     }
   });
 }
@@ -814,15 +1056,50 @@ const blacklistCleanupTimer = setInterval(() => {
 }, 60 * 1000);
 blacklistCleanupTimer.unref();
 
+const historyCleanupTimer = setInterval(() => history.cleanup(), 6 * 60 * 60 * 1000);
+historyCleanupTimer.unref();
+history.cleanup();
+
+const logRotationTimer = setInterval(() => {
+  try { logRotation.run(); } catch (error) { addLog('HATA', `Log rotasyonu: ${error.message}`); }
+}, 6 * 60 * 60 * 1000);
+logRotationTimer.unref();
+try { logRotation.run(); } catch (error) { console.error('[LOG ROTASYONU]', error.message); }
+
+const staleDeviceTimer = setInterval(() => {
+  let changed = false;
+  const now = Date.now();
+  for (const [clientId, client] of onlineClients) {
+    const stale = now - (client.lastStatusAt || client.connectedAtMs || now) >= DEVICE_STALE_AFTER_MS;
+    const nextStatus = stale ? 'STALE' : 'UP';
+    if (client.status !== nextStatus) {
+      onlineClients.set(clientId, { ...client, status: nextStatus });
+      if (nextStatus === 'STALE') history.addConnection('stale', client, { reason: 'status_timeout', staleAfterMs: DEVICE_STALE_AFTER_MS });
+      changed = true;
+    }
+  }
+  if (changed) broadcastState();
+}, Math.min(30000, Math.max(5000, Math.floor(DEVICE_STALE_AFTER_MS / 2))));
+staleDeviceTimer.unref();
+
 function shutdown() {
   writeDailyStatusLog('SERVER_DOWN', { reason: 'controlled_shutdown' });
   clearInterval(blacklistCleanupTimer);
+  clearInterval(historyCleanupTimer);
+  clearInterval(staleDeviceTimer);
+  clearInterval(logRotationTimer);
   security.close();
   scheduledTasks.close();
   emailNotifications.close();
   webAuth.close();
   mqttUsers.close();
   firmwareManager.close();
+  history.close();
+  rules.close();
+  netgsm.close();
+  deviceAutomation.close();
+  logRotation.close();
+  systemSettings.close();
 }
 
 process.once('SIGINT', () => {

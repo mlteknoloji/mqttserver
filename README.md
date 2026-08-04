@@ -187,7 +187,7 @@ Broker'a bağlanmasına izin verilen kullanıcılar burada tanımlanır:
 - Kullanıcı adı veya parola değiştirildiğinde sunucuyu kapatıp yeniden başlatın.
 - NetRelay cihazına girdiğiniz bilgiler burada yazan bilgilerle tamamen aynı olmalıdır.
 
-> **Güvenlik uyarısı:** Bu projede `.env` ve `users.json` GitHub'a gönderilebilecek şekilde ayarlanmıştır. Depo herkese açıksa parolalar da görünür. Gerçek sistemlerde özel (private) depo kullanın ve parolaları düzenli olarak değiştirin.
+> **Güvenlik uyarısı:** `.env` ve `users.json` dosyaları `.gitignore` kapsamındadır ve depoya gönderilmez. Yine de parolaları düzenli olarak değiştirin ve özel (private) olmayan depolarda paylaşmayın.
 
 ## Programı çalıştırma
 
@@ -666,6 +666,16 @@ Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQ
 
 `1883` veya `3000` portu başka bir uygulama tarafından kullanılıyordur. Diğer uygulamayı kapatın veya `.env` içindeki portu değiştirip sunucuyu yeniden başlatın.
 
+## Testler ve canlı güncellemeler
+
+Saf ayrıştırma, cron, giriş engelleme ve WebSocket delta davranışı Node.js'in yerleşik test çatısıyla sınanır:
+
+```powershell
+npm test
+```
+
+WebSocket istemcileri bağlantı başında tam durum alır; sonraki güncellemelerde yalnızca değişen alanlar gönderilir. Röle, yeniden başlatma, senkronizasyon ve kuyruk komutları MQTT QoS 1 kullanır. QoS 1 teslimatı en az bir kez garanti ettiğinden cihaz firmware'i aynı komutun tekrar gelmesini güvenli biçimde karşılamalıdır.
+
 ## Proje yapısı
 
 ```text
@@ -707,3 +717,9 @@ Mevcut `S-3.3.4` cihazlarında MQTT OTA komutu bulunmadığından OTA destekli i
 ## Günlük cihaz durum logları
 
 MQTT cihazlarının bağlantı geçmişi `logs/device-status-YYYY-MM-DD.log` dosyalarına JSON Lines biçiminde yazılır. `DEVICE_UP` cihaz bağlantısını, `DEVICE_DOWN` bağlantı kopmasını, `SERVER_UP` uygulamanın açılışını ve `SERVER_DOWN` kontrollü kapanışı belirtir. Her satır UTC zamanını, Türkiye yerel saatini, MQTT kullanıcı adını, Client ID'yi ve uzak IP adresini içerir.
+
+Yöneticiler **Sistem → Log Rotasyonu** sayfasından eski günlüklerin kaç gün sonra `.gz` olarak arşivleneceğini ve kaç gün sonra silineceğini ayarlayabilir. Rotasyon başlangıçta ve altı saatte bir çalışır; aynı sayfadan elle de başlatılabilir.
+
+## Windows servisi
+
+Sunucuyu terminal açık kalmadan ve Windows başlangıcında otomatik çalıştırmak için NSSM kurulum betikleri sağlanır. Ayrıntılı kurulum ve PM2 alternatifi için [Windows servis rehberine](docs/WINDOWS-SERVICE.md) bakın.

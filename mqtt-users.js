@@ -22,6 +22,7 @@ function createMqttUserStore({ databasePath, usersFile }) {
       for (const user of users) {
         const username = String(user.username || '').trim(), password = String(user.password || '');
         if (!username || !password) throw new Error('Her MQTT kullanıcısı için kullanıcı adı ve parola zorunludur.');
+        if (!/^[A-Za-z0-9._-]+$/.test(username)) throw new Error(`MQTT kullanıcı adı yalnızca harf, rakam, nokta, alt çizgi ve tire içerebilir: ${username}`);
         const now = Date.now();
         insert.run(username, bcrypt.hashSync(password, 12), now, now);
       }
@@ -40,6 +41,7 @@ function createMqttUserStore({ databasePath, usersFile }) {
   function save(input) {
     const id = Number(input.id || 0), username = String(input.username || '').trim(), password = String(input.password || '');
     if (!username) throw new Error('MQTT kullanıcı adı zorunludur.');
+    if (!/^[A-Za-z0-9._-]+$/.test(username)) throw new Error('MQTT kullanıcı adı yalnızca harf, rakam, nokta, alt çizgi ve tire içerebilir.');
     if (!id && password.length < 8) throw new Error('Yeni MQTT kullanıcı parolası en az 8 karakter olmalıdır.');
     const now = Date.now();
     if (id) {

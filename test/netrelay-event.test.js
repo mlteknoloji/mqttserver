@@ -1,0 +1,5 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {parseNetRelayEvent}=require('../netrelay-event');
+const client={id:'device-1',authenticatedUsername:'cihaz1'},now=()=>new Date('2026-01-02T03:04:05.000Z');
+test('röle JSON olayını ayrıştırır',()=>{const x=parseNetRelayEvent(JSON.stringify({type:'netrelay_relay_event',relay:2,position:1}),client,'netrelay/cihaz1/events',now);assert.equal(x.relay,2);assert.equal(x.username,'cihaz1');assert.equal(x.serverReceivedAt,'2026-01-02T03:04:05.000Z');});
+test('input ve cihaz durum doğrulaması yapar',()=>{const input=parseNetRelayEvent(JSON.stringify({type:'netrelay_input_event',input:1,io:0,voltage:12.4}),client,'events',now);assert.equal(input.voltage,12.4);const invalid=parseNetRelayEvent(JSON.stringify({type:'netrelay_device_status',relays:[0,1],inputs:[]}),client,'events',now);assert.equal(invalid,null);});
+test('eski metin olayını ayrıştırır',()=>{const x=parseNetRelayEvent('NetRelay olay bilgisidir. Olay 12 - input3 = 1 oldu.',client,'events',now);assert.deepEqual({id:x.eventId,input:x.input,value:x.value},{id:12,input:'input3',value:1});});

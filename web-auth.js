@@ -1,10 +1,15 @@
 const crypto = require('node:crypto');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
+const { normalizeIp } = require('./security');
 
 const PERMISSIONS = ['dashboard', 'relay', 'schedules', 'firmware', 'email', 'blacklist', 'logs', 'users'];
-const DEFAULT_ADMIN = 'admin@mlteknoloji.com';
+const DEFAULT_ADMIN = process.env.INITIAL_ADMIN_USERNAME || 'admin@mlteknoloji.com';
 const SESSION_MS = 12 * 60 * 60 * 1000;
+// Web paneli giriş koruması: aynı IP'den art arda başarısız denemeler kilitlemeyle sonuçlanır.
+const WEB_LOGIN_MAX_ATTEMPTS = Number(process.env.WEB_LOGIN_MAX_ATTEMPTS) || 5;
+const WEB_LOGIN_FIND_TIME_MS = (Number(process.env.WEB_LOGIN_FIND_TIME_MINUTES) || 10) * 60 * 1000;
+const WEB_LOGIN_LOCK_MS = (Number(process.env.WEB_LOGIN_LOCK_MINUTES) || 15) * 60 * 1000;
 
 function tokenHash(token) { return crypto.createHash('sha256').update(token).digest('hex'); }
 function cookies(header) {
@@ -25,12 +30,25 @@ function createWebAuthStore(options) {
       token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL, FOREIGN KEY(user_id) REFERENCES web_users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS web_login_failures (
+      ip TEXT PRIMARY KEY,
+      attempt_count INTEGER NOT NULL,
+      first_attempt_at INTEGER NOT NULL,
+      last_attempt_at INTEGER NOT NULL,
+      locked_until INTEGER
+    );
   `);
   db.pragma('foreign_keys = ON');
   const admin = db.prepare('SELECT id FROM web_users WHERE username=?').get(DEFAULT_ADMIN);
-  if (!admin) db.prepare(`INSERT INTO web_users
-    (username,password_hash,display_name,role,permissions,enabled,must_change_password,created_at,updated_at)
-    VALUES (?,?,?,?,?,1,1,?,?)`).run(DEFAULT_ADMIN, bcrypt.hashSync('mltek', 12), 'Sistem Yöneticisi', 'admin', JSON.stringify(PERMISSIONS), Date.now(), Date.now());
+  if (!admin) {
+    const configuredPassword = String(process.env.INITIAL_ADMIN_PASSWORD || '');
+    if (configuredPassword && configuredPassword.length < 12) throw new Error('INITIAL_ADMIN_PASSWORD en az 12 karakter olmalıdır.');
+    const initialPassword = configuredPassword || crypto.randomBytes(18).toString('base64url');
+    db.prepare(`INSERT INTO web_users
+      (username,password_hash,display_name,role,permissions,enabled,must_change_password,created_at,updated_at)
+      VALUES (?,?,?,?,?,1,1,?,?)`).run(DEFAULT_ADMIN, bcrypt.hashSync(initialPassword, 12), 'Sistem Yöneticisi', 'admin', JSON.stringify(PERMISSIONS), Date.now(), Date.now());
+    if (!configuredPassword) console.warn(`[GÜVENLİK] İlk yönetici parolası (${DEFAULT_ADMIN}): ${initialPassword}`);
+  }
 
   function publicUser(row) {
     if (!row) return null;
@@ -46,14 +64,61 @@ function createWebAuthStore(options) {
       WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1`).get(tokenHash(token), Date.now());
     return publicUser(row);
   }
-  function login(username, password) {
+  function getActiveLoginFailure(ip) {
+    const row = db.prepare('SELECT * FROM web_login_failures WHERE ip=?').get(ip);
+    if (!row) return null;
+    if (row.locked_until) {
+      if (row.locked_until <= Date.now()) db.prepare('DELETE FROM web_login_failures WHERE ip=?').run(ip);
+      return null;
+    }
+    if (Date.now() - row.first_attempt_at > WEB_LOGIN_FIND_TIME_MS) {
+      db.prepare('DELETE FROM web_login_failures WHERE ip=?').run(ip);
+      return null;
+    }
+    return row;
+  }
+  function loginLock(ip) {
+    if (!ip) return null;
+    const row = db.prepare('SELECT * FROM web_login_failures WHERE ip=? AND locked_until IS NOT NULL AND locked_until>?').get(ip, Date.now());
+    if (!row) return null;
+    const minutes = Math.ceil((row.locked_until - Date.now()) / 60000);
+    return { lockedUntil: row.locked_until, message: `Çok fazla başarısız giriş denemesi. ${minutes} dakika sonra tekrar deneyin.` };
+  }
+  function recordLoginFailure(ip) {
+    if (!ip) return;
+    const current = getActiveLoginFailure(ip);
+    const now = Date.now();
+    const attempts = current ? current.attempt_count + 1 : 1;
+    const firstAttemptAt = current ? current.first_attempt_at : now;
+    if (attempts >= WEB_LOGIN_MAX_ATTEMPTS) {
+      db.prepare(`INSERT INTO web_login_failures (ip, attempt_count, first_attempt_at, last_attempt_at, locked_until) VALUES (?,?,?,?,?)
+        ON CONFLICT(ip) DO UPDATE SET attempt_count=excluded.attempt_count, locked_until=excluded.locked_until, last_attempt_at=excluded.last_attempt_at`)
+        .run(ip, attempts, firstAttemptAt, now, now + WEB_LOGIN_LOCK_MS);
+      return;
+    }
+    db.prepare(`INSERT INTO web_login_failures (ip, attempt_count, first_attempt_at, last_attempt_at) VALUES (?,?,?,?)
+      ON CONFLICT(ip) DO UPDATE SET attempt_count=excluded.attempt_count,
+        first_attempt_at=excluded.first_attempt_at, last_attempt_at=excluded.last_attempt_at`)
+      .run(ip, attempts, firstAttemptAt, now);
+  }
+  function clearLoginFailures(ip) {
+    if (ip) db.prepare('DELETE FROM web_login_failures WHERE ip=? AND locked_until IS NULL').run(ip);
+  }
+  function login(username, password, remoteIp) {
+    const ip = normalizeIp(remoteIp);
+    const lock = loginLock(ip);
+    if (lock) return { ok: false, locked: true, message: lock.message };
     db.prepare('DELETE FROM web_sessions WHERE expires_at<=?').run(Date.now());
     const row = db.prepare('SELECT * FROM web_users WHERE username=? COLLATE NOCASE AND enabled=1').get(String(username || '').trim());
-    if (!row || !bcrypt.compareSync(String(password || ''), row.password_hash)) return null;
+    if (!row || !bcrypt.compareSync(String(password || ''), row.password_hash)) {
+      recordLoginFailure(ip);
+      return { ok: false };
+    }
+    clearLoginFailures(ip);
     const token = crypto.randomBytes(32).toString('base64url');
     db.prepare('INSERT INTO web_sessions (token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)')
       .run(tokenHash(token), row.id, Date.now() + SESSION_MS, Date.now());
-    return { token, user: publicUser(row) };
+    return { ok: true, token, user: publicUser(row) };
   }
   function logout(request) {
     const token = cookies(request.headers.cookie).netrelay_session;
@@ -102,7 +167,7 @@ function createWebAuthStore(options) {
   }
   function hasPermission(user, permission) { return Boolean(user && (user.role === 'admin' || user.permissions.includes(permission))); }
   return { permissions: PERMISSIONS, fromRequest, login, logout, changePassword, listUsers, saveUser, removeUser, hasPermission,
-    cookie(token) { return `netrelay_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`; },
+    cookie(token, secure = false) { return `netrelay_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`; },
     clearCookie: 'netrelay_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', close: () => db.close() };
 }
 
