@@ -1,0 +1,4 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {groupsForKey,usernamesForKey,canAccessUser,canAccessGroup,filterDevices}=require('../api-group-scope');
+const groups=[{id:1,name:'Kuzey',members:['biga_sube','biga_depo']},{id:2,name:'Güney',members:['izmir_sube']}],key={allowedGroupIds:[1]};
+test('API anahtarı yalnızca atanmış grubu ve üyelerini görür',()=>{assert.deepEqual(groupsForKey(key,groups).map(x=>x.id),[1]);assert.deepEqual([...usernamesForKey(key,groups)],['biga_sube','biga_depo']);assert.equal(canAccessGroup(key,groups,2),false);assert.equal(canAccessUser(key,groups,'izmir_sube'),false);});
+test('cihaz kartları kesin olarak grup üyeleriyle filtrelenir',()=>{const devices=[{username:'biga_sube',secret:'a'},{username:'izmir_sube',secret:'b'},{username:'BIGA_DEPO',secret:'c'}];assert.deepEqual(filterDevices(key,groups,devices).map(x=>x.username),['biga_sube','BIGA_DEPO']);});

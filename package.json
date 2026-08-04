@@ -1,6 +1,6 @@
 {
   "name": "basit-mqtt-server",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "private": true,
   "description": "Node.js ile basit MQTT broker ve test istemcisi",
   "main": "server.js",
@@ -20,6 +20,7 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "suncalc": "^1.9.0",
+    "sweetalert2": "^11.26.25",
     "ws": "^8.21.1"
   }
 }

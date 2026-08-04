@@ -12,7 +12,9 @@
       })();
     </script>
     <link rel="stylesheet" href="/style.css">
+    <%- include('partials/swal-assets') %>
     <script src="/state-delta.js"></script>
+    <script src="/form-ui.js" defer></script>
   </head>
   <body>
     <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menüyü aç" aria-controls="sidebar" aria-expanded="false">☰</button>
@@ -33,7 +35,7 @@
           <a href="/email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="system"><button class="nav-group-title" type="button">SİSTEM <span>⌄</span></button><div class="nav-group-items">
-          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/web-users"><span>♙</span> Kullanıcı Yönetimi</a><a href="/log-rotation"><span>↻</span> Log Rotasyonu</a><% } %>
+          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/web-users"><span>♙</span> Kullanıcı Yönetimi</a><a href="/api-keys"><span>⌘</span> REST API</a><a href="/log-rotation"><span>↻</span> Log Rotasyonu</a><% } %>
         </div></div>
       </nav>
       <div class="sidebar-footer">
@@ -45,7 +47,7 @@
         <small>NetRelay MQTT yönetimi</small>
       </div>
     </aside>
-    <main class="container">
+    <main class="container standalone-shell">
       <header id="dashboard" class="page-section">
         <div>
           <p class="eyebrow">CANLI YÖNETİM EKRANI</p>
@@ -116,7 +118,7 @@
         </div>
         <div class="card">
           <span>MQTT adresi</span>
-          <strong><%= mqttAddresses.join(', ') || 'IP adresi bulunamadı' %></strong>
+          <strong class="mqtt-address-list"><%= mqttAddresses.join(', ') || 'IP adresi bulunamadı' %></strong>
         </div>
       </section>
       <section class="summary dashboard-history-summary">

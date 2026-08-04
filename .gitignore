@@ -13,3 +13,4 @@ certs/*.pem
 certs/*.key
 restore-staging/
 *.pre-restore-*
+api-smoke.sqlite3*

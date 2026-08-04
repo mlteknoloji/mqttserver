@@ -28,6 +28,9 @@ const { parseNetRelayEvent } = require('./netrelay-event');
 const { stateChanges } = require('./state-delta');
 const { deviceStateChanges } = require('./device-state-change');
 const { createSystemSettings } = require('./system-settings');
+const { createApiKeyStore } = require('./api-keys');
+const { createHomeAssistantDiscovery } = require('./home-assistant');
+const { groupsForKey, usernamesForKey, canAccessUser, canAccessGroup, filterDevices } = require('./api-group-scope');
 const { createFirmwareManager, MAX_FIRMWARE_SIZE } = require('./firmware-manager');
 
 const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
@@ -71,6 +74,8 @@ const netgsm = createNetgsmStore({ databasePath: SECURITY_DB_PATH });
 const deviceAutomation = createDeviceAutomationStore({ databasePath: SECURITY_DB_PATH });
 const logRotation = createLogRotation({ databasePath: SECURITY_DB_PATH, logDirectory: STATUS_LOG_DIRECTORY });
 const systemSettings = createSystemSettings({ databasePath: SECURITY_DB_PATH });
+const apiKeys = createApiKeyStore({ databasePath: SECURITY_DB_PATH });
+const homeAssistant = createHomeAssistantDiscovery({ databasePath: SECURITY_DB_PATH });
 const firmwareUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FIRMWARE_SIZE } });
 const backupUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 150 * 1024 * 1024 } });
 
@@ -320,6 +325,8 @@ async function startServer() {
       if (packet.topic.startsWith('$SYS/')) return callback(new Error('$SYS topic alanı ayrılmıştır.'));
       if (client && MQTT_TOPIC_ENFORCEMENT) {
         const username = client.authenticatedUsername;
+        const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
+        if(isHomeAssistant&&/^netrelay\/[^/]+\/command$/.test(packet.topic))return callback(null);
         const prefix = username ? `netrelay/${username}/` : null;
         if (!prefix || !(packet.topic === `netrelay/${username}` || packet.topic.startsWith(prefix))) {
           addLog('YETKİ', `Yayın engellendi | Kullanıcı: ${username || client.id} | Topic: ${packet.topic}`);
@@ -332,6 +339,8 @@ async function startServer() {
     authorizeSubscribe(client, subscription, callback) {
       if (client && MQTT_TOPIC_ENFORCEMENT) {
         const username = client.authenticatedUsername;
+        const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
+        if(isHomeAssistant&&(subscription.topic===`${ha.prefix}/#`||subscription.topic==='netrelay/+/events'))return callback(null,subscription);
         const prefix = username ? `netrelay/${username}/` : null;
         const allowed = prefix && (subscription.topic === `netrelay/${username}` || subscription.topic.startsWith(prefix));
         if (!allowed) {
@@ -360,6 +369,8 @@ async function startServer() {
       qos: 1, retain: false, dup: false
     }, (error) => error ? reject(error) : resolve(payload)));
   }
+
+  async function publishHomeAssistantDiscovery(username){for(const item of homeAssistant.messages(username)){await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:item.topic,payload:Buffer.from(JSON.stringify(item.payload)),qos:1,retain:true,dup:false},error=>error?reject(error):resolve()));}}
 
   const ruleMessage = (template, rule, event) => String(template || 'NetRelay kuralı tetiklendi: {{rule}} / {{device}}')
     .replaceAll('{{rule}}', rule.name).replaceAll('{{device}}', event.mqttUsername || event.username || '')
@@ -478,6 +489,7 @@ async function startServer() {
     response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     next();
   });
+  app.use('/vendor/sweetalert2',express.static(path.join(__dirname,'node_modules','sweetalert2','dist')));
   app.use(express.static(path.join(__dirname, 'public')));
   app.get('/favicon.ico', (request, response) => response.redirect(301, '/favicon.svg'));
 
@@ -564,6 +576,42 @@ async function startServer() {
   app.get('/sms-settings', renderProtectedPage('sms-settings', 'email'));
   app.get('/backup-restore', (request,response)=>{const user=webAuth.fromRequest(request);if(!user)return response.redirect('/login');if(user.mustChangePassword)return response.redirect('/change-password');if(user.role!=='admin')return response.status(403).send('Bu sayfa yalnızca yöneticilere açıktır.');response.render('backup-restore',{currentUser:user});});
   const requireAdminApi=(request,response,next)=>{const user=webAuth.fromRequest(request);if(!user||user.mustChangePassword)return response.status(401).json({error:'Oturum gerekli.'});if(user.role!=='admin')return response.status(403).json({error:'Yönetici yetkisi gerekli.'});request.authUser=user;next();};
+  app.get('/api-keys',requireAdminApi,(request,response)=>response.render('api-keys',{currentUser:request.authUser}));
+  app.get('/api/api-keys',requireAdminApi,(request,response)=>response.json({keys:apiKeys.list(),groups:deviceAutomation.listGroups(),homeAssistant:homeAssistant.get()}));
+  app.post('/api/api-keys',requireAdminApi,express.json(),(request,response)=>{try{const allowedGroupIds=[...new Set((request.body.allowedGroupIds||[]).map(Number))];if(!allowedGroupIds.length)throw new Error('En az bir cihaz grubu seçin.');const existingIds=new Set(deviceAutomation.listGroups().map(x=>x.id));if(allowedGroupIds.some(id=>!existingIds.has(id)))throw new Error('Seçilen cihaz gruplarından biri bulunamadı.');const key=apiKeys.create({...request.body,allowedGroupIds});history.addAudit({actor:request.authUser.username,action:'apiKeyCreate',target:key.name,remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{scopes:key.scopes,allowedGroupIds:key.allowedGroupIds}});response.status(201).json({key,message:'API anahtarı oluşturuldu. Bu değer tekrar gösterilmeyecek.'});}catch(error){response.status(400).json({error:error.message});}});
+  app.delete('/api/api-keys/:id',requireAdminApi,(request,response)=>{try{apiKeys.remove(request.params.id);history.addAudit({actor:request.authUser.username,action:'apiKeyRemove',target:String(request.params.id),remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.json({message:'API anahtarı silindi.'});}catch(error){response.status(404).json({error:error.message});}});
+  app.put('/api/home-assistant',requireAdminApi,express.json(),async(request,response)=>{try{const settings=homeAssistant.save(request.body||{});if(settings.enabled)for(const user of mqttUsers.list())await publishHomeAssistantDiscovery(user.username);history.addAudit({actor:request.authUser.username,action:'homeAssistantDiscoverySave',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:settings});response.json({settings,message:'Home Assistant Discovery ayarları kaydedildi.'});}catch(error){response.status(400).json({error:error.message});}});
+
+  const apiUsage=new Map();
+  function requireApiScope(scope){return(request,response,next)=>{
+    const authorization=String(request.headers.authorization||''),token=authorization.startsWith('Bearer ')?authorization.slice(7).trim():String(request.headers['x-api-key']||''),key=apiKeys.authenticate(token);
+    if(!key)return response.status(401).json({error:'Geçerli Bearer API anahtarı gerekli.',code:'INVALID_API_KEY'});
+    if(!key.scopes.includes(scope)&&!(scope==='read'&&key.scopes.includes('control')))return response.status(403).json({error:`${scope} API yetkisi gerekli.`,code:'INSUFFICIENT_SCOPE'});
+    const now=Date.now(),usage=apiUsage.get(key.id)||{start:now,count:0};if(now-usage.start>=60000){usage.start=now;usage.count=0;}usage.count++;apiUsage.set(key.id,usage);response.setHeader('X-RateLimit-Limit','120');response.setHeader('X-RateLimit-Remaining',String(Math.max(0,120-usage.count)));if(usage.count>120)return response.status(429).json({error:'Dakikalık API istek sınırı aşıldı.',code:'RATE_LIMITED'});
+    request.apiKey=key;
+    if(request.params.username&&!apiCanAccessUser(key,request.params.username))return response.status(404).json({error:'Cihaz bulunamadı.',code:'DEVICE_NOT_FOUND'});
+    if(request.params.id&&request.path.startsWith('/api/v1/device-groups/')&&!apiCanAccessGroup(key,request.params.id))return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});
+    const groupDefinitionMutation=(request.method==='POST'&&request.path==='/api/v1/device-groups')||(['PUT','DELETE'].includes(request.method)&&/^\/api\/v1\/device-groups\/\d+$/.test(request.path));
+    if(key.allowedGroupIds.length&&groupDefinitionMutation)return response.status(403).json({error:'Grup kapsamlı API anahtarları grup tanımını değiştiremez.',code:'GROUP_SCOPE_LOCKED'});
+    next();
+  };}
+  const apiGroupsFor=key=>groupsForKey(key,deviceAutomation.listGroups());
+  const apiUsernamesFor=key=>usernamesForKey(key,deviceAutomation.listGroups());
+  const apiCanAccessUser=(key,username)=>canAccessUser(key,deviceAutomation.listGroups(),username);
+  const apiCanAccessGroup=(key,id)=>canAccessGroup(key,deviceAutomation.listGroups(),id);
+  app.use('/api/v1',express.json({limit:'64kb'}));
+  app.get('/api/v1/health',(request,response)=>response.json({status:'ok',time:new Date().toISOString(),version:require('./package.json').version}));
+  app.get('/api/v1/devices',requireApiScope('read'),(request,response)=>{const devices=filterDevices(request.apiKey,deviceAutomation.listGroups(),[...onlineClients.values()]);response.json({devices:devices.map(({commandTopic,lastJson,...device})=>device)});});
+  app.get('/api/v1/devices/:username',requireApiScope('read'),(request,response)=>{if(!apiCanAccessUser(request.apiKey,request.params.username))return response.status(404).json({error:'Cihaz bulunamadı.',code:'DEVICE_NOT_FOUND'});const device=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!device)return response.status(404).json({error:'Cihaz çevrimiçi değil.',code:'DEVICE_OFFLINE'});const{commandTopic,lastJson,...safe}=device;response.json({device:safe});});
+  app.get('/api/v1/history',requireApiScope('read'),(request,response)=>{const allowed=apiUsernamesFor(request.apiKey),asked=(Array.isArray(request.query.username)?request.query.username:request.query.username?[request.query.username]:[...allowed]).filter(x=>allowed.has(String(x).toLowerCase()));if(!asked.length)return response.json({events:[]});response.json({events:history.listEvents({usernames:asked,type:request.query.type,limit:request.query.limit})});});
+  app.get('/api/v1/device-groups',requireApiScope('read'),(request,response)=>response.json({groups:apiGroupsFor(request.apiKey)}));
+  app.get('/api/v1/device-groups/:id',requireApiScope('read'),(request,response)=>{if(!apiCanAccessGroup(request.apiKey,request.params.id))return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});const group=deviceAutomation.listGroups().find(x=>x.id===Number(request.params.id));if(!group)return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});response.json({group});});
+  app.post('/api/v1/device-groups',requireApiScope('control'),(request,response)=>{try{const id=deviceAutomation.saveGroup(request.body||{}),group=deviceAutomation.listGroups().find(x=>x.id===id);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupCreate',target:String(id),remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{name:group.name,members:group.members}});response.status(201).json({group});}catch(error){response.status(400).json({error:error.message,code:'INVALID_GROUP'});}});
+  app.put('/api/v1/device-groups/:id',requireApiScope('control'),(request,response)=>{try{const id=deviceAutomation.saveGroup({...request.body,id:Number(request.params.id)}),group=deviceAutomation.listGroups().find(x=>x.id===id);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupUpdate',target:String(id),remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{name:group.name,members:group.members}});response.json({group});}catch(error){response.status(/bulunamadı/i.test(error.message)?404:400).json({error:error.message,code:/bulunamadı/i.test(error.message)?'GROUP_NOT_FOUND':'INVALID_GROUP'});}});
+  app.delete('/api/v1/device-groups/:id',requireApiScope('control'),(request,response)=>{try{deviceAutomation.removeGroup(request.params.id);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupRemove',target:String(request.params.id),remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.status(204).end();}catch(error){response.status(404).json({error:error.message,code:'GROUP_NOT_FOUND'});}});
+  app.post('/api/v1/device-groups/:id/relays',requireApiScope('control'),async(request,response)=>{try{const group=deviceAutomation.listGroups().find(x=>x.id===Number(request.params.id));if(!group)return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});const relays=[...new Set((request.body.relays||[]).map(Number))],position=Number(request.body.position),delay=Number(request.body.delay||0),queueOffline=request.body.queueOffline===true;if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>4)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0||delay>4294967)return response.status(400).json({error:'Grup röle komutu geçersiz.',code:'INVALID_COMMAND'});const results=[];for(const username of group.members){const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===username.toLowerCase());if(target){await publishRelayCommand(target,relays,position,delay);results.push({username,status:'sent'});}else if(queueOffline){const commandId=createCommandId(),queueId=deviceAutomation.enqueue(username,{type:'netrelay',command:'set',commandId,targetUsername:username,relays,position,delay},`api-group:${group.id}`);results.push({username,status:'queued',queueId});}else results.push({username,status:'offline'});}history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupRelayCommand',target:String(group.id),remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{relays,position,delay,queueOffline,results}});broadcastState();response.status(202).json({accepted:true,group:{id:group.id,name:group.name},summary:{sent:results.filter(x=>x.status==='sent').length,queued:results.filter(x=>x.status==='queued').length,offline:results.filter(x=>x.status==='offline').length},results});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
+  app.post('/api/v1/devices/:username/relays',requireApiScope('control'),async(request,response)=>{try{const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const relays=[...new Set((request.body.relays||[]).map(Number))],position=Number(request.body.position),delay=Number(request.body.delay||0);if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>4)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0||delay>4294967)return response.status(400).json({error:'Röle komutu geçersiz.',code:'INVALID_COMMAND'});const payload=await publishRelayCommand(target,relays,position,delay);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiRelayCommand',target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{relays,position,delay}});response.status(202).json({accepted:true,command:JSON.parse(payload)});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
+  app.post('/api/v1/devices/:username/:action',requireApiScope('control'),async(request,response)=>{try{if(!['restart','sync'].includes(request.params.action))return response.status(404).json({error:'API işlemi bulunamadı.',code:'NOT_FOUND'});const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const payload={type:'netrelay',command:request.params.action,commandId:createCommandId(),targetUsername:target.username};await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:target.commandTopic,payload:Buffer.from(JSON.stringify(payload)),qos:1,retain:false,dup:false},error=>error?reject(error):resolve()));history.addAudit({actor:`api:${request.apiKey.name}`,action:`apiDevice${request.params.action}`,target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.status(202).json({accepted:true,command:payload});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
   app.get('/log-rotation',requireAdminApi,(request,response)=>response.render('log-rotation',{currentUser:request.authUser}));
   app.get('/api/log-rotation',requireAdminApi,(request,response)=>response.json(logRotation.getSettings()));
   app.put('/api/log-rotation',requireAdminApi,express.json(),(request,response)=>{try{const settings=logRotation.saveSettings(request.body||{});history.addAudit({actor:request.authUser.username,action:'logRotationSettingsSave',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:settings});response.json({message:'Log rotasyonu ayarları kaydedildi.',settings});}catch(error){response.status(400).json({error:error.message});}});
@@ -895,6 +943,7 @@ async function startServer() {
       remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     });
     history.addConnection('connected', client, { remoteIp: security.normalizeIp(client.conn?.remoteAddress) });
+    publishHomeAssistantDiscovery(client.authenticatedUsername).catch(error=>addLog('HATA',`Home Assistant Discovery: ${error.message}`));
     deliverQueuedCommands(onlineClients.get(client.id)).catch(error=>addLog('HATA',`Kuyruk teslimi: ${error.message}`));
     if (!usernameWasOnline) emailNotifications.notifyDevice(client.authenticatedUsername, true, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
@@ -1100,6 +1149,8 @@ function shutdown() {
   deviceAutomation.close();
   logRotation.close();
   systemSettings.close();
+  apiKeys.close();
+  homeAssistant.close();
 }
 
 process.once('SIGINT', () => {
