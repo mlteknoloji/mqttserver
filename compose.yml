@@ -1,0 +1,25 @@
+services:
+  mqttserver:
+    image: ghcr.io/mlteknoloji/mqttserver:latest
+    container_name: netrelay-mqtt-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      SECURITY_DB_PATH: /data/security.sqlite3
+    ports:
+      - "1883:1883"
+      - "3000:3000"
+      - "8883:8883"
+      - "3443:3443"
+    volumes:
+      - mqttserver-data:/data
+      - mqttserver-logs:/app/logs
+      - mqttserver-firmware:/app/firmware-files
+      - ./users.json:/app/users.json:ro
+
+volumes:
+  mqttserver-data:
+  mqttserver-logs:
+  mqttserver-firmware:
