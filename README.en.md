@@ -10,7 +10,7 @@ NetRelay products are available from the official store: **[Buy NetRelay](https:
 
 ## Features
 
-- MQTT on `1883` and optional TLS/mTLS on `8883`
+- MQTT on `31883` and optional TLS/mTLS on `38883`
 - SQLite-backed MQTT users with add/edit/delete and enabled state
 - Per-user topic ACL: `netrelay/<username>/*`
 - MQTT and web-login brute-force protection/blacklist
@@ -33,7 +33,7 @@ NetRelay products are available from the official store: **[Buy NetRelay](https:
 - npm
 - Windows, Linux or macOS
 - A fixed local IP or resolvable hostname for the server
-- Open local firewall ports as required: `1883`, `8883`, `3000`
+- Open local firewall ports as required: `31883`, `38883`, `8082`
 
 ## Installation
 
@@ -82,7 +82,7 @@ docker compose logs -f
 docker exec netrelay-mqtt-server pm2 status
 ```
 
-The web panel is available at `http://localhost:3000` and the MQTT broker at `mqtt://localhost:1883` by default. The `restart: unless-stopped` setting in `compose.yml` starts the container again after a machine restart, while `pm2-runtime` restarts the application if it exits unexpectedly inside the container.
+The web panel is available at `http://localhost:8082` and the MQTT broker at `mqtt://localhost:31883`. The `restart: unless-stopped` setting in `compose.yml` starts the container again after a machine restart, while `pm2-runtime` restarts the application if it exits unexpectedly inside the container.
 
 To change ports in a Docker installation, edit `MQTT_PORT`, `WEB_PORT`, `MQTT_TLS_PORT` or `WEB_HTTPS_PORT` in `.env`. The `compose.yml` file uses these values for both the host and container ports. Recreate the container to apply the change:
 
@@ -99,7 +99,7 @@ WEB_PORT=8082
 MQTT_TLS_PORT=38883
 ```
 
-With these settings, the web panel is available at `http://SERVER_IP:8082`, the plain MQTT broker at `mqtt://SERVER_IP:31883`, and the TLS broker at `mqtts://SERVER_IP:38883` when TLS is enabled. After changing the ports, update the firewall rules and the MQTT/MQTT TLS ports configured on every NetRelay device. Do not leave the unused `1883`, `3000` and `8883` ports exposed to the internet.
+With these settings, the web panel is available at `http://SERVER_IP:8082`, the plain MQTT broker at `mqtt://SERVER_IP:31883`, and the TLS broker at `mqtts://SERVER_IP:38883` when TLS is enabled. After changing the ports, update the firewall rules and the MQTT/MQTT TLS ports configured on every NetRelay device. Do not leave the unused former standard ports exposed to the internet.
 
 Non-standard ports may reduce automated internet scanning, but they are not a security control by themselves. Strong unique passwords, MQTT TLS, login protection, firewall IP restrictions or a VPN are recommended.
 
@@ -125,15 +125,15 @@ Typical `.env` values:
 
 ```env
 HOST=0.0.0.0
-MQTT_PORT=1883
-WEB_PORT=3000
+MQTT_PORT=31883
+WEB_PORT=8082
 MQTT_HOST=192.168.1.100
 
 MQTT_USERNAME=admin
 MQTT_PASSWORD=replace-with-a-strong-password
 
 MQTT_TLS_ENABLED=0
-MQTT_TLS_PORT=8883
+MQTT_TLS_PORT=38883
 MQTT_TLS_KEY=certs/server-key.pem
 MQTT_TLS_CERT=certs/server-cert.pem
 MQTT_TLS_CA=certs/ca-cert.pem
@@ -150,12 +150,12 @@ SECURITY_DB_PATH=security.sqlite3
 | Setting | Description |
 |---|---|
 | `HOST` | Listening address; `0.0.0.0` accepts all interfaces. |
-| `MQTT_PORT` | Plain MQTT port, default `1883`. |
-| `WEB_PORT` | Web panel and REST API port, default `3000`. |
+| `MQTT_PORT` | Plain MQTT port, `31883` in this installation. |
+| `WEB_PORT` | Web panel and REST API port, `8082` in this installation. |
 | `MQTT_HOST` | Host used by `npm run client`. |
 | `MQTT_USERNAME`, `MQTT_PASSWORD` | Test-client credentials. |
 | `MQTT_TLS_ENABLED` | Set to `1` to enable MQTT TLS. |
-| `MQTT_TLS_PORT` | TLS MQTT port, default `8883`. |
+| `MQTT_TLS_PORT` | TLS MQTT port, `38883` in this installation. |
 | `MQTT_TLS_KEY`, `MQTT_TLS_CERT` | PEM server private key and certificate. |
 | `MQTT_TLS_CA` | CA used for server/client certificate verification. |
 | `MQTT_TLS_REQUEST_CLIENT_CERT` | Set to `1` to require a valid client certificate. |
@@ -188,7 +188,7 @@ npm start
 The console prints reachable MQTT and web-panel addresses. Open:
 
 ```text
-http://SERVER_IP:3000
+http://SERVER_IP:8082
 ```
 
 The first web administrator is created automatically. The generated initial password is printed once to the server console and must be changed at first sign-in. The system always retains at least one active administrator; the final active admin cannot be deleted, disabled or demoted.
@@ -202,9 +202,9 @@ In the card's MQTT page configure:
 | Device field | Value |
 |---|---|
 | MQTT Server | Server IP or DNS name, without scheme/path |
-| MQTT Port | `1883`, or configured plain port |
+| MQTT Port | `31883`, or configured plain port |
 | MQTT TLS | Enable when using TLS |
-| MQTT TLS Port | `8883`, or configured TLS port |
+| MQTT TLS Port | `38883`, or configured TLS port |
 | Server CA Certificate | PEM CA that signed the server certificate |
 | Client Certificate/Key | Required only when mTLS is enabled |
 | MQTT User/Password | One enabled MQTT account from the panel |
@@ -285,9 +285,9 @@ For mTLS, generate a separate key/certificate per card with `extendedKeyUsage=cl
 |---|---|---|---|
 | Local IP | `192.168.1.4` | `DNS:192.168.1.4,IP:192.168.1.4` | None |
 | Local DNS | `mqtt.lan.example.com` | `DNS:mqtt.lan.example.com` | None |
-| Internet domain | `mqtt.example.com` | `DNS:mqtt.example.com` | TCP `8883` only |
+| Internet domain | `mqtt.example.com` | `DNS:mqtt.example.com` | TCP `38883` only |
 
-Prefer a VPN for remote access. Never expose plain MQTT `1883` or the panel `3000` directly to the internet. If public access is unavoidable, use verified TLS, firewall restrictions and an authenticated HTTPS reverse proxy.
+Prefer a VPN for remote access. Never expose plain MQTT `31883` or the panel `8082` directly to the internet. If public access is unavoidable, use verified TLS, firewall restrictions and an authenticated HTTPS reverse proxy.
 
 ## MQTT topics and commands
 
@@ -347,7 +347,7 @@ Key routes include devices, history, groups, relay control, sync, restart and gr
 1. Create an enabled MQTT user named `homeassistant` with a strong password.
 2. Open **System → REST API**, enable Home Assistant Discovery and keep the recommended `homeassistant` prefix.
 3. Click **Save and publish**.
-4. Configure Home Assistant's MQTT integration with the server address, port `1883` or TLS `8883`, and this account.
+4. Configure Home Assistant's MQTT integration with the server address, port `31883` or TLS `38883`, and this account.
 
 Each NetRelay card appears as one device with four relay switches and four input binary sensors. The integration account receives only the extra Discovery/event/command topic permissions it requires.
 
@@ -396,14 +396,14 @@ Tests cover topic/group isolation, API key hashing, history change detection, Ho
 
 - Verify server IP/hostname and port.
 - Confirm `npm start` or the Windows service is running.
-- Check VLAN routing and firewall TCP `1883`/`8883`.
+- Check VLAN routing and firewall TCP `31883`/`38883`.
 - For TLS, check device time, CA, SAN hostname/IP and optional client certificate.
 
 ### Panel does not open
 
-- Try `http://localhost:3000` on the server.
+- Try `http://localhost:8082` on the server.
 - From another computer use the server IP, not `localhost`.
-- Check TCP `3000` and whether another process occupies the port.
+- Check TCP `8082` and whether another process occupies the port.
 
 ### Device is connected but missing
 
@@ -413,7 +413,7 @@ Tests cover topic/group isolation, API key hashing, history change detection, Ho
 
 ### `EADDRINUSE`
 
-Another process already owns `1883`, `8883` or `3000`. Do not run both a terminal instance and the Windows service. Stop the duplicate process or change the port in `.env`.
+Another process already owns `31883`, `38883` or `8082`. Do not run both a terminal instance and the Windows service. Stop the duplicate process or change the port in `.env`.
 
 ## Project structure
 

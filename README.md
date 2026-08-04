@@ -79,8 +79,8 @@ Değerleri değiştirdikten sonra sunucuyu yeniden başlatın. Web yönetim pane
 - [Node.js](https://nodejs.org/) 18 veya daha yeni sürüm
 - Git (projeyi GitHub'dan indirecek veya GitHub'a gönderecekseniz)
 - Yerel ağ erişimi için açık TCP portları:
-  - `1883`: MQTT bağlantıları
-  - `3000`: Web yönetim paneli
+  - `31883`: MQTT bağlantıları
+  - `8082`: Web yönetim paneli
 
 Kurulumları doğrulamak için terminalde şunları çalıştırabilirsiniz:
 
@@ -146,7 +146,7 @@ docker compose logs -f
 docker exec netrelay-mqtt-server pm2 status
 ```
 
-Web paneli varsayılan olarak `http://localhost:3000`, MQTT broker ise `mqtt://localhost:1883` adresinde çalışır. `compose.yml` içindeki `restart: unless-stopped` ayarı konteyneri makine yeniden başladığında otomatik başlatır; konteyner içinde çalışan `pm2-runtime` uygulama beklenmedik şekilde kapanırsa yeniden çalıştırır.
+Web paneli `http://localhost:8082`, MQTT broker ise `mqtt://localhost:31883` adresinde çalışır. `compose.yml` içindeki `restart: unless-stopped` ayarı konteyneri makine yeniden başladığında otomatik başlatır; konteyner içinde çalışan `pm2-runtime` uygulama beklenmedik şekilde kapanırsa yeniden çalıştırır.
 
 Docker kurulumunda portları değiştirmek için `.env` içindeki `MQTT_PORT`, `WEB_PORT`, `MQTT_TLS_PORT` veya `WEB_HTTPS_PORT` değerini düzenleyin. `compose.yml` hem host hem konteyner portunu bu değerlerden alır. Değişikliğin uygulanması için konteyneri yeniden oluşturun:
 
@@ -163,7 +163,7 @@ WEB_PORT=8082
 MQTT_TLS_PORT=38883
 ```
 
-Bu ayarlarla web paneli `http://SUNUCU_IP:8082`, normal MQTT broker `mqtt://SUNUCU_IP:31883` ve TLS etkinse MQTT broker `mqtts://SUNUCU_IP:38883` adresinden erişilebilir. Port değişikliğinden sonra güvenlik duvarındaki izinleri ve NetRelay cihazındaki MQTT/MQTT TLS portlarını aynı değerlere göre güncelleyin. Artık kullanılmayan `1883`, `3000` ve `8883` portlarını internete açık bırakmayın.
+Bu ayarlarla web paneli `http://SUNUCU_IP:8082`, normal MQTT broker `mqtt://SUNUCU_IP:31883` ve TLS etkinse MQTT broker `mqtts://SUNUCU_IP:38883` adresinden erişilebilir. Port değişikliğinden sonra güvenlik duvarındaki izinleri ve NetRelay cihazındaki MQTT/MQTT TLS portlarını aynı değerlere göre güncelleyin. Artık kullanılmayan eski standart portları internete açık bırakmayın.
 
 Standart dışı port kullanımı otomatik internet taramalarını azaltabilir ancak tek başına bir güvenlik önlemi değildir. Güçlü ve benzersiz parolalar, MQTT TLS, giriş engelleme koruması, güvenlik duvarı IP kısıtlaması veya VPN kullanılması önerilir.
 
@@ -196,15 +196,15 @@ Copy-Item users.example.json users.json
 
 ```env
 HOST=0.0.0.0
-MQTT_PORT=1883
-WEB_PORT=3000
+MQTT_PORT=31883
+WEB_PORT=8082
 MQTT_HOST=192.168.1.100
 
 MQTT_USERNAME=admin
 MQTT_PASSWORD=guclu-bir-parola
 
 MQTT_TLS_ENABLED=0
-MQTT_TLS_PORT=8883
+MQTT_TLS_PORT=38883
 MQTT_TLS_KEY=certs/server-key.pem
 MQTT_TLS_CERT=certs/server-cert.pem
 MQTT_TLS_CA=certs/ca-cert.pem
@@ -221,13 +221,13 @@ SECURITY_DB_PATH=security.sqlite3
 | Ayar | Açıklama |
 |---|---|
 | `HOST` | Sunucunun dinleyeceği adres. `0.0.0.0`, tüm ağ bağlantılarını dinler. |
-| `MQTT_PORT` | NetRelay cihazlarının bağlanacağı MQTT portu. Varsayılan `1883`. |
-| `WEB_PORT` | Web panelinin portu. Varsayılan `3000`. |
+| `MQTT_PORT` | NetRelay cihazlarının bağlanacağı MQTT portu. Bu kurulumda `31883`. |
+| `WEB_PORT` | Web panelinin portu. Bu kurulumda `8082`. |
 | `MQTT_HOST` | Yalnızca `npm run client` test istemcisinin bağlanacağı sunucu IP'si. |
 | `MQTT_USERNAME` | Test istemcisinin kullanıcı adı. `users.json` içinde bulunmalıdır. |
 | `MQTT_PASSWORD` | Test istemcisinin parolası. `users.json` ile aynı olmalıdır. |
 | `MQTT_TLS_ENABLED` | `1` olduğunda TLS MQTT sunucusunu ve test istemcisinde `mqtts://` bağlantısını etkinleştirir. |
-| `MQTT_TLS_PORT` | TLS MQTT portu. Varsayılan `8883`. |
+| `MQTT_TLS_PORT` | TLS MQTT portu. Bu kurulumda `38883`. |
 | `MQTT_TLS_KEY` | MQTT sunucusunun PEM biçimindeki private key dosyası. |
 | `MQTT_TLS_CERT` | MQTT sunucusunun PEM biçimindeki sertifika dosyası. |
 | `MQTT_TLS_CA` | Sunucu veya karşılıklı TLS doğrulamasında kullanılacak CA sertifikası. |
@@ -278,10 +278,10 @@ Başarılı açılışta terminalde MQTT ve web paneli adresleri gösterilir. Te
 
 Varsayılan erişim adresleri:
 
-- Aynı bilgisayardan panel: `http://localhost:3000`
-- Ağdaki başka bir bilgisayardan panel: `http://SUNUCU_IP:3000`
-- MQTT broker: `mqtt://SUNUCU_IP:1883`
-- TLS MQTT broker etkinse: `mqtts://SUNUCU_IP:8883`
+- Aynı bilgisayardan panel: `http://localhost:8082`
+- Ağdaki başka bir bilgisayardan panel: `http://SUNUCU_IP:8082`
+- MQTT broker: `mqtt://SUNUCU_IP:31883`
+- TLS MQTT broker etkinse: `mqtts://SUNUCU_IP:38883`
 
 Programı durdurmak için terminalde `Ctrl+C` tuşlarına basın.
 
@@ -290,9 +290,9 @@ Programı durdurmak için terminalde `Ctrl+C` tuşlarına basın.
 Diğer cihazlar bağlanamıyorsa PowerShell'i **Yönetici olarak** açıp gerekli portlara izin verin:
 
 ```powershell
-New-NetFirewallRule -DisplayName "NetRelay MQTT 1883" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
-New-NetFirewallRule -DisplayName "NetRelay MQTT TLS 8883" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow
-New-NetFirewallRule -DisplayName "NetRelay Web 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
+New-NetFirewallRule -DisplayName "NetRelay MQTT 31883" -Direction Inbound -Protocol TCP -LocalPort 31883 -Action Allow
+New-NetFirewallRule -DisplayName "NetRelay MQTT TLS 38883" -Direction Inbound -Protocol TCP -LocalPort 38883 -Action Allow
+New-NetFirewallRule -DisplayName "NetRelay Web 8082" -Direction Inbound -Protocol TCP -LocalPort 8082 -Action Allow
 ```
 
 Yalnızca güvendiğiniz yerel ağlarda bu izinleri açın.
@@ -304,9 +304,9 @@ NetRelay cihazının `/mqtt` ayar sayfasını açın ve şu değerleri girin:
 | Cihaz ayarı | Girilecek değer |
 |---|---|
 | MQTT Server | Bu programın çalıştığı bilgisayarın IP adresi |
-| MQTT Port | `1883` veya `.env` içindeki `MQTT_PORT` |
+| MQTT Port | `31883` veya `.env` içindeki `MQTT_PORT` |
 | MQTT TLS | TLS bağlantısı kullanılacaksa açık |
-| MQTT TLS Port | `8883` veya `.env` içindeki `MQTT_TLS_PORT` |
+| MQTT TLS Port | `38883` veya `.env` içindeki `MQTT_TLS_PORT` |
 | Sunucu CA Sertifikası | Sunucu sertifikasını imzalayan CA'nın PEM içeriği |
 | İstemci Sertifikası | Karşılıklı TLS etkinse cihaza ait PEM sertifika |
 | İstemci Private Key | İstemci sertifikasına ait PEM private key |
@@ -319,7 +319,7 @@ Ayarları kaydettikten sonra gerekirse cihazı yeniden başlatın. Bağlantı ku
 
 ## MQTT TLS yapılandırması
 
-TLS sunucusunu etkinleştirmek için sunucu sertifikası ve private key dosyalarını `certs` klasörüne yerleştirip `.env` içinde `MQTT_TLS_ENABLED=1` yapın. Sunucu normal MQTT portu `1883` ile TLS portu `8883` üzerinde aynı anda çalışır. Tüm cihazlar TLS'e geçirildikten sonra `1883` portunu güvenlik duvarından kapatabilirsiniz.
+TLS sunucusunu etkinleştirmek için sunucu sertifikası ve private key dosyalarını `certs` klasörüne yerleştirip `.env` içinde `MQTT_TLS_ENABLED=1` yapın. Sunucu normal MQTT portu `31883` ile TLS portu `38883` üzerinde aynı anda çalışır. Tüm cihazlar TLS'e geçirildikten sonra `31883` portunu güvenlik duvarından kapatabilirsiniz.
 
 NetRelay cihazında **MQTT TLS** açıldığında **Sunucu CA Sertifikası** zorunludur. Cihaz sertifikadaki alan adı veya IP adresiyle MQTT sunucusuna bağlanmalıdır. Örneğin MQTT sunucusu `192.168.1.4` adresindeyse sunucu sertifikasının Subject Alternative Name alanında bu adres bulunmalıdır.
 
@@ -357,7 +357,7 @@ MQTT sunucusu ve NetRelay cihazları aynı yerel ağdaysa en basit yöntem sunuc
 ```text
 MQTT sunucusu: 192.168.1.4
 NetRelay cihazı: 192.168.1.50
-TLS MQTT portu: 8883
+TLS MQTT portu: 38883
 ```
 
 Sunucu sertifikasının SAN ayarı ESP32 uyumluluğu için IP adresini hem `DNS:` hem `IP:` türünde içermelidir:
@@ -371,10 +371,10 @@ NetRelay `/mqtt` ayarı:
 ```text
 MQTT Server: 192.168.1.4
 MQTT TLS: Açık
-MQTT TLS Port: 8883
+MQTT TLS Port: 38883
 ```
 
-Bu yöntemde DNS kaydı ve modem port yönlendirmesi gerekmez. Sunucu bilgisayarının yerel IP adresi değişmemelidir; DHCP rezervasyonu veya statik IP kullanın. Güvenlik duvarında TCP `8883` portuna yalnızca yerel ağdan erişim verin.
+Bu yöntemde DNS kaydı ve modem port yönlendirmesi gerekmez. Sunucu bilgisayarının yerel IP adresi değişmemelidir; DHCP rezervasyonu veya statik IP kullanın. Güvenlik duvarında TCP `38883` portuna yalnızca yerel ağdan erişim verin.
 
 #### Senaryo 2: Yerel ağda DNS adı kullanımı
 
@@ -397,7 +397,7 @@ NetRelay `/mqtt` ayarı:
 ```text
 MQTT Server: mqtt.lan.example.com
 MQTT TLS: Açık
-MQTT TLS Port: 8883
+MQTT TLS Port: 38883
 ```
 
 NetRelay cihazının ağ ayarlarındaki DNS sunucusu, bu yerel kaydı çözebilen DNS sunucusunu göstermelidir. Örneğin kayıt Pi-hole üzerinde tanımlıysa cihazın DNS adresi Pi-hole IP adresi olmalıdır.
@@ -425,19 +425,19 @@ NetRelay `/mqtt` ayarı:
 ```text
 MQTT Server: mqtt.example.com
 MQTT TLS: Açık
-MQTT TLS Port: 8883
+MQTT TLS Port: 38883
 ```
 
 İnternet erişimi için ayrıca:
 
-- Modem veya güvenlik duvarında TCP `8883` portunu MQTT sunucusuna yönlendirin.
+- Modem veya güvenlik duvarında TCP `38883` portunu MQTT sunucusuna yönlendirin.
 - Public IP değişiyorsa dinamik DNS kullanın veya DNS kaydını otomatik güncelleyin.
 - CGNAT kullanılıyorsa doğrudan port yönlendirme çalışmayabilir; VPN veya sabit public IP gerekir.
 - Yerel cihazlar da public domain kullanacaksa modem hairpin NAT desteklemeli veya aynı domain için yerel DNS kaydı tanımlanmalıdır.
-- `1883` şifresiz MQTT portunu internete açmayın.
+- `31883` şifresiz MQTT portunu internete açmayın.
 - Güçlü ve her cihaz için farklı MQTT parolaları kullanın.
 - Mümkünse `MQTT_TLS_REQUEST_CLIENT_CERT=1` ile karşılıklı TLS kullanın.
-- Yönetim paneli portu `3000` doğrudan internete açılmamalıdır; VPN veya kimlik doğrulamalı HTTPS reverse proxy arkasında tutulmalıdır.
+- Yönetim paneli portu `8082` doğrudan internete açılmamalıdır; VPN veya kimlik doğrulamalı HTTPS reverse proxy arkasında tutulmalıdır.
 
 Kendi CA'nızla domain sertifikası oluşturursanız NetRelay cihazına `ca-cert.pem` yüklenir. Let's Encrypt gibi public bir CA kullanılırsa sunucu `fullchain.pem` sunmalı ve NetRelay cihazına sertifikayı doğrulayan uygun kök CA yüklenmelidir. Sunucu sertifikasını yenilemek, imzalayan kök CA değişmediği sürece cihazdaki CA alanını güncellemeyi gerektirmez.
 
@@ -447,7 +447,7 @@ Kendi CA'nızla domain sertifikası oluşturursanız NetRelay cihazına `ca-cert
 |---|---|---|---|---|
 | Yerel IP | `192.168.1.4` | `DNS:192.168.1.4,IP:192.168.1.4` | Gerekmez | Gerekmez |
 | Yerel DNS | `mqtt.lan.example.com` | `DNS:mqtt.lan.example.com` | Yerel DNS → `192.168.1.4` | Gerekmez |
-| İnternet domain | `mqtt.example.com` | `DNS:mqtt.example.com` | Public DNS → public IP | TCP `8883` |
+| İnternet domain | `mqtt.example.com` | `DNS:mqtt.example.com` | Public DNS → public IP | TCP `38883` |
 
 DNS adı veya IP değiştirildiğinde firmware kodunu değiştirmek gerekmez. Yeni adres sertifikanın SAN alanına eklenir, sertifika yeniden imzalanır, `.env` içindeki `MQTT_TLS_CERT` yolu gerekiyorsa güncellenir ve MQTT sunucusu yeniden başlatılır.
 
@@ -581,7 +581,7 @@ Proje kök dizinine dönüp `.env` dosyasını düzenleyin:
 
 ```env
 MQTT_TLS_ENABLED=1
-MQTT_TLS_PORT=8883
+MQTT_TLS_PORT=38883
 MQTT_TLS_KEY=certs/server-key.pem
 MQTT_TLS_CERT=certs/server-cert.pem
 MQTT_TLS_CA=certs/ca-cert.pem
@@ -600,7 +600,7 @@ Sunucuyu yeniden başlatın:
 npm start
 ```
 
-Başlangıç logunda `MQTT TLS server çalışıyor: 0.0.0.0:8883` mesajı görülmelidir.
+Başlangıç logunda `MQTT TLS server çalışıyor: 0.0.0.0:38883` mesajı görülmelidir.
 
 #### 7. NetRelay cihazını yapılandırın
 
@@ -610,7 +610,7 @@ NetRelay cihazında `http://CIHAZ_IP/mqtt` sayfasını açın ve şu değerleri 
 |---|---|
 | MQTT Server | Sunucu sertifikasının SAN alanındaki IP veya alan adı |
 | MQTT TLS | Açık |
-| MQTT TLS Port | `8883` |
+| MQTT TLS Port | `38883` |
 | Sunucu CA Sertifikası | `ca-cert.pem` dosyasının başlangıç ve bitiş satırları dahil tam içeriği |
 | İstemci Sertifikası | Karşılıklı TLS için `client-1000-cert.pem` dosyasının tam içeriği |
 | İstemci Private Key | Karşılıklı TLS için `client-1000-key.pem` dosyasının tam içeriği |
@@ -649,7 +649,7 @@ CSR ve uzantı dosyaları sertifikalar üretildikten sonra çalışma sırasınd
 
 ## Web panelinin kullanımı
 
-1. Tarayıcıdan `http://SUNUCU_IP:3000` adresini açın.
+1. Tarayıcıdan `http://SUNUCU_IP:8082` adresini açın.
 2. Çevrimiçi cihazlar listesinden kontrol edilecek cihazı seçin.
 3. Açmak veya kapatmak istediğiniz 1–4 numaralı röleleri seçin.
 4. Röle konumunu Açık (`1`) veya Kapalı (`0`) olarak belirleyin.
@@ -724,14 +724,14 @@ Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQ
 - Sunucu bilgisayarın IP adresinin doğru olduğunu kontrol edin.
 - Sunucunun `npm start` ile çalıştığını doğrulayın.
 - Cihaz ile sunucunun aynı ağa erişebildiğinden emin olun.
-- Güvenlik duvarında TCP `1883` portunu kontrol edin.
+- Güvenlik duvarında TCP `31883` portunu kontrol edin.
 - Aynı portu başka bir programın kullanmadığını doğrulayın.
 
 ### Web paneli açılmıyor
 
-- `http://localhost:3000` adresini sunucu bilgisayarda deneyin.
+- `http://localhost:8082` adresini sunucu bilgisayarda deneyin.
 - Başka bilgisayardan erişiyorsanız `localhost` yerine sunucu IP'sini kullanın.
-- Güvenlik duvarında TCP `3000` portunu kontrol edin.
+- Güvenlik duvarında TCP `8082` portunu kontrol edin.
 
 ### Cihaz bağlı ama panelde görünmüyor
 
@@ -741,7 +741,7 @@ Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQ
 
 ### `EADDRINUSE` hatası
 
-`1883` veya `3000` portu başka bir uygulama tarafından kullanılıyordur. Diğer uygulamayı kapatın veya `.env` içindeki portu değiştirip sunucuyu yeniden başlatın.
+`31883` veya `8082` portu başka bir uygulama tarafından kullanılıyordur. Diğer uygulamayı kapatın veya `.env` içindeki portu değiştirip sunucuyu yeniden başlatın.
 
 ## Testler ve canlı güncellemeler
 
@@ -769,7 +769,7 @@ docs/                Ayrıntılı NetRelay dokümanları ve görseller
 
 ## Güvenlik
 
-Bu program varsayılan olarak şifresiz TCP MQTT ve HTTP kullanır. `1883` ve `3000` portlarını doğrudan internete açmayın. Uzak erişim gerekiyorsa VPN, güvenlik duvarı ve tercihen TLS/HTTPS sağlayan bir ters proxy kullanın. Her cihaz için farklı ve güçlü parola belirleyin.
+Bu program varsayılan olarak şifresiz TCP MQTT ve HTTP kullanır. `31883` ve `8082` portlarını doğrudan internete açmayın. Uzak erişim gerekiyorsa VPN, güvenlik duvarı ve tercihen TLS/HTTPS sağlayan bir ters proxy kullanın. Her cihaz için farklı ve güçlü parola belirleyin.
 
 ## Lisans
 
