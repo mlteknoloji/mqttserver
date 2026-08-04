@@ -289,6 +289,7 @@
       <a href="#kurulum">Kurulum</a>
       <a href="#komutlar">Komutlar</a>
       <a href="#olaylar">Olaylar</a>
+      <a href="#panel-ozellikleri">Panel özellikleri</a>
       <a href="#indirmeler">İndirmeler</a>
       <a href="#sorun-giderme">Sorun giderme</a>
     </nav>
@@ -297,11 +298,12 @@
   <section class="hero">
     <div class="hero-inner">
       <div>
-        <div class="kicker">Uygulama ve donanım kılavuzu · v1.0</div>
+        <div class="kicker">Uygulama ve donanım kılavuzu · v2.0 · Ağustos 2026</div>
         <h1>NetRelay’i <span>MQTT ile</span> izleyin ve yönetin.</h1>
         <p class="lead">Dört röle çıkışını uzaktan kontrol edin, dört dijital girişteki değişimleri anlık izleyin ve birden fazla şubeyi tek merkez panelden güvenli biçimde yönetin.</p>
         <div class="hero-actions">
           <a class="button primary" href="#kurulum">Kuruluma başla →</a>
+          <a class="button ghost" href="https://github.com/mlteknoloji/mqttserver" target="_blank" rel="noopener">MQTT Server GitHub</a>
           <a class="button ghost" href="https://netrelay.tr/" target="_blank" rel="noopener">NetRelay resmi sitesi</a>
         </div>
       </div>
@@ -328,9 +330,10 @@
       <a href="#mqtt">04 · MQTT ayarları</a>
       <a href="#komutlar">05 · Röle komutları</a>
       <a href="#olaylar">06 · Input ve röle olayları</a>
-      <a href="#indirmeler">07 · İndirmeler</a>
-      <a href="#guvenlik">08 · Güvenlik</a>
-      <a href="#sorun-giderme">09 · Sorun giderme</a>
+      <a href="#panel-ozellikleri">07 · Yönetim paneli</a>
+      <a href="#indirmeler">08 · İndirmeler</a>
+      <a href="#guvenlik">09 · Güvenlik</a>
+      <a href="#sorun-giderme">10 · Sorun giderme</a>
     </aside>
 
     <main>
@@ -412,7 +415,7 @@
             <tr><td>Başlık (Topic)</td><td><code>biga_şube</code></td><td>Cihazın yapılandırılmış yayın başlığı.</td></tr>
             <tr><td>Sub Topic</td><td><code>fromServer</code></td><td>Mevcut cihaz iş akışlarında kullanılan alt topic.</td></tr>
             <tr><td>MQTT Port</td><td><code>1883</code></td><td>TLS kullanılmayan standart MQTT portu.</td></tr>
-            <tr><td>MQTT User</td><td><code>biga_sube</code></td><td><code>users.json</code> içindeki benzersiz kullanıcı adı.</td></tr>
+            <tr><td>MQTT User</td><td><code>biga_sube</code></td><td>Paneldeki <strong>MQTT Kullanıcıları</strong> bölümünde oluşturulan benzersiz ve aktif kullanıcı adı.</td></tr>
             <tr><td>MQTT Password</td><td><span class="pill">GİZLİ</span></td><td>Sunucudaki kullanıcı kaydıyla birebir eşleşmelidir.</td></tr>
             <tr><td>Client Mode</td><td><span class="pill">AKTİF</span></td><td>Kaydettikten sonra MQTT bağlantısını etkinleştirir.</td></tr>
           </tbody>
@@ -503,8 +506,46 @@
         </table>
       </section>
 
+      <section id="panel-ozellikleri">
+        <span class="section-index">07 · YÖNETİM PANELİ VE SUNUCU</span>
+        <h2>Güncel NetRelay yönetim özellikleri.</h2>
+        <p class="section-intro">Node.js MQTT Server yalnızca broker değildir; cihaz, kullanıcı, otomasyon, bildirim, güvenlik ve operasyon işlemlerini tek web panelinde birleştirir.</p>
+
+        <h3>İzleme ve cihaz kontrolü</h3>
+        <table class="settings-table"><thead><tr><th>Özellik</th><th>Açıklama</th></tr></thead><tbody>
+          <tr><td>Genel bakış</td><td>Çevrimiçi cihazlar, son görülme, IP, hostname, uptime, voltaj, sıcaklık ve bağlantı istatistiklerini gösterir.</td></tr>
+          <tr><td>Cihaz I/O</td><td>Dört input ve dört röleyi canlı izler; röleleri iPhone tarzı anahtarlarla kontrol eder. Seçilen cihaza durum senkronizasyonu ve yeniden başlatma komutu gönderilebilir.</td></tr>
+          <tr><td>Bayat cihaz tespiti</td><td>MQTT bağlantısı açık kalsa bile durum mesajı belirlenen süre boyunca kesilirse cihazı <strong>Bayat</strong> işaretler; mesaj yeniden geldiğinde iyileşme kaydı oluşturur.</td></tr>
+          <tr><td>Delta güncellemeleri</td><td>WebSocket ilk bağlantıda tam durumu, devamında yalnızca değişen alanları göndererek ağ ve tarayıcı yükünü azaltır.</td></tr>
+        </tbody></table>
+
+        <h3>Otomasyon ve toplu kontrol</h3>
+        <div class="cards">
+          <article class="card"><span class="card-tag">ZAMANLAMA</span><h3>Zamanlanmış görevler</h3><p>Cron, gün doğumu veya gün batımına göre röle çalıştırır. Geri alma süresi, tatil/istisna günleri, çalışma geçmişi ve cihaz çevrimdışıysa bağlandığında çalıştırma kuyruğu desteklenir.</p></article>
+          <article class="card"><span class="card-tag">KURAL MOTORU</span><h3>Olay tabanlı kurallar</h3><p>Input, sıcaklık veya voltaj koşuluna göre röle konumu değiştirme, SMTP e-posta ve Netgsm REST v2 SMS eylemlerini sıralı çalıştırır. Kurallar düzenlenebilir, silinebilir ve aktif/pasif yapılabilir.</p></article>
+          <article class="card"><span class="card-tag">GRUPLAR</span><h3>Cihaz grupları</h3><p>Şube veya bölge bazlı cihaz grupları oluşturur; tek komutu birden fazla cihaza gönderir ve çevrimdışı hedefler için komut kuyruğu kullanabilir.</p></article>
+          <article class="card"><span class="card-tag">OTA</span><h3>Merkezi firmware</h3><p>ESP32 imajını boyut ve SHA-256 ile doğrular, seçilen cihazlara süreli indirme bağlantısı gönderir ve OTA ilerlemesini panelden izler.</p></article>
+        </div>
+
+        <h3 style="margin-top:30px">Kullanıcı, geçmiş ve sistem yönetimi</h3>
+        <table class="settings-table"><thead><tr><th>Panel</th><th>İşlev</th></tr></thead><tbody>
+          <tr><td>MQTT kullanıcıları</td><td>Kullanıcılar SQLite veritabanında tutulur; panelden eklenir, düzenlenir, silinir ve aktif/pasif yapılır. Her hesap yalnızca kendi <code>netrelay/&lt;kullanıcı&gt;/*</code> topic alanına erişebilir.</td></tr>
+          <tr><td>Panel kullanıcıları</td><td>Yönetici ve yetkili kullanıcı hesapları; bölüm bazlı izinler, parola değiştirme zorunluluğu, güvenli oturum çerezi ve brute-force hesap kilidi içerir.</td></tr>
+          <tr><td>Olay geçmişi</td><td>Röle/input ve cihaz durumu değişikliklerini SQLite’a yazar. Aynı 5 saniyelik heartbeat tekrar kaydedilmez; sensör toleransları uygulanır. MQTT kullanıcıları çoklu seçilebilir ve sonuçlar CSV indirilebilir.</td></tr>
+          <tr><td>Denetim kaydı</td><td>Panelde komut gönderen, ayar veya kullanıcı değiştiren hesabı zaman ve uzak IP bilgisiyle kalıcı olarak kaydeder.</td></tr>
+          <tr><td>Yedekleme</td><td>SQLite veritabanı ile isteğe bağlı <code>.env</code> ayarlarını tek bir sıkıştırılmış pakete indirir. Geri yükleme bütünlük kontrolünden sonra yeniden başlatmada uygulanır ve mevcut dosyaların geri dönüş kopyası alınır.</td></tr>
+          <tr><td>Log rotasyonu</td><td>Günlük cihaz loglarını ayarlanan sürede <code>.gz</code> arşivine dönüştürür ve saklama süresi dolunca siler. İşlem açılışta, altı saatte bir veya panelden elle çalıştırılabilir.</td></tr>
+          <tr><td>Log ayarları</td><td>Terminal konsol çıktısı ve ayrıntılı MQTT/TLS debug logu panelden ayrı ayrı açılıp kapatılır; seçimler SQLite’ta saklanır.</td></tr>
+          <tr><td>Arayüz</td><td>Açık/koyu tema, mobil menü, N faviconu, iPhone tarzı röle/konum anahtarları ve yetkiye göre görünür menüler desteklenir.</td></tr>
+          <tr><td>Windows servisi</td><td><code>scripts/install-windows-service.ps1</code> ile NSSM servisi kurulur; Windows açılışında başlar ve hata halinde otomatik yeniden çalışır. PM2 alternatifi de belgelenmiştir.</td></tr>
+        </tbody></table>
+
+        <div class="notice"><div class="notice-icon">1</div><div><strong>Güvenilir komut teslimi</strong><p>Röle, restart, sync, kuyruk ve OTA komutları MQTT QoS 1 kullanır. Sunucu her komuta benzersiz <code>commandId</code> ekler; güncel firmware son işlenen ID’leri tutarak tekrar teslim edilen komutları ikinci kez uygulamaz.</p></div></div>
+        <div class="notice"><div class="notice-icon">i</div><div><strong>Test ve bakım</strong><p>Cron ayrıştırma, olay ayrıştırma, giriş engelleme, değişiklik algılama, çoklu geçmiş filtresi, WebSocket delta ve kalıcı sistem ayarları <code>npm test</code> ile çalışan Node.js testleriyle doğrulanır.</p></div></div>
+      </section>
+
       <section id="indirmeler">
-        <span class="section-index">07 · İNDİRMELER</span>
+        <span class="section-index">08 · İNDİRMELER</span>
         <h2>Örnek kod ve güncel firmware.</h2>
         <p class="section-intro">NetRelay MQTT uygulamasını kurmak veya cihaz firmware’ını güncellemek için gerekli paketlere aşağıdan ulaşabilirsiniz.</p>
         <div class="cards">
@@ -512,15 +553,15 @@
             <span class="card-tag">NODE.JS · MQTT SERVER</span>
             <h3>MQTT sunucu örnek kodu</h3>
             <p>MQTT broker, kullanıcı doğrulaması, canlı web paneli, WebSocket logları ve hedefli NetRelay röle kontrolü için örnek proje.</p>
-            <a class="button primary" style="margin-top:20px" href="https://mlteknoloji.com/netRelay/mqttserver.rar" download>MQTT Server’ı indir ↓</a>
-            <p><small>RAR paketi · yaklaşık 23 KB</small></p>
+            <a class="button primary" style="margin-top:20px" href="https://github.com/mlteknoloji/mqttserver" target="_blank" rel="noopener">MQTT Server GitHub ↗</a>
+            <p><small>Kaynak kod, güncelleme geçmişi ve kurulum belgeleri GitHub deposundadır.</small></p>
           </article>
           <article class="card">
-            <span class="card-tag">NETRELAY · V3.3.4</span>
+            <span class="card-tag">NETRELAY · S-3.3.5</span>
             <h3>Güncel firmware</h3>
-            <p>MQTT komut işleme, röle/input event mesajları, cihaz heartbeat’i, uptime, IP ve hostname desteğini içeren firmware paketi.</p>
-            <a class="button primary" style="margin-top:20px" href="https://mlteknoloji.com/netRelay/firmware_v3_3_4.rar" download>Firmware v3.3.4’ü indir ↓</a>
-            <p><small>RAR paketi · yaklaşık 773 KB</small></p>
+            <p>MQTT QoS 1 komut aboneliği, <code>commandId</code> tekrar koruması, restart/sync, merkezi OTA, röle/input event mesajları, heartbeat, uptime, IP ve hostname desteğini içerir.</p>
+            <a class="button primary" style="margin-top:20px" href="https://netrelay.tr/software" target="_blank" rel="noopener">NetRelay Yazılımları ↗</a>
+            <p><small>ESP32-S3 / 8 MB için doğru partition ve donanım modelini doğrulayın.</small></p>
           </article>
         </div>
         <div class="notice">
@@ -530,24 +571,28 @@
       </section>
 
       <section id="guvenlik">
-        <span class="section-index">08 · GÜVENLİK</span>
+        <span class="section-index">09 · GÜVENLİK</span>
         <h2>Saha kontrolünü koruyun.</h2>
         <div class="cards">
-          <article class="card"><span class="card-tag">HESAPLAR</span><h3>Her cihaz için ayrı kullanıcı</h3><p>Şubeler arasında hesap paylaşmayın. Uzun, benzersiz parolalar kullanın ve <code>users.json</code> dosyasını sürüm kontrolüne eklemeyin.</p></article>
+          <article class="card"><span class="card-tag">HESAPLAR</span><h3>Her cihaz için ayrı kullanıcı</h3><p>Şubeler arasında hesap paylaşmayın. Uzun, benzersiz parolalar kullanın; hesapları SQLite tabanlı MQTT Kullanıcıları ekranından yönetin. <code>.env</code>, veritabanı ve yedek paketlerini sürüm kontrolüne eklemeyin.</p></article>
           <article class="card"><span class="card-tag">AĞ</span><h3>IoT VLAN kullanın</h3><p>Cihazları ayrı bir VLAN’da tutun; yalnızca MQTT broker ve gerekli yönetim istemcilerine erişim verin.</p></article>
           <article class="card"><span class="card-tag">İNTERNET</span><h3>1883 portunu doğrudan açmayın</h3><p>Uzak erişimde VPN tercih edin. İnternet üzerinden MQTT gerekiyorsa TLS, sertifika doğrulama ve erişim listeleri kullanın.</p></article>
-          <article class="card"><span class="card-tag">PANEL</span><h3>Web erişimini sınırlandırın</h3><p>Röle komutu gönderen web panelini güvenilir ağla sınırlayın ve üretimde ayrıca web oturum doğrulaması ekleyin.</p></article>
+          <article class="card"><span class="card-tag">PANEL</span><h3>Web erişimini sınırlandırın</h3><p>Panel oturum doğrulaması, rol/yetki kontrolleri ve giriş denemesi kilidi içerir. Üretimde HTTPS’yi etkinleştirin veya güvenilir bir TLS ters proxy kullanın; paneli doğrudan internete açmayın.</p></article>
+          <article class="card"><span class="card-tag">TOPIC ACL</span><h3>Cihazları topic ile yalıtın</h3><p>Broker publish/subscribe yetkilendirmesi her MQTT hesabını kendi <code>netrelay/&lt;kullanıcı&gt;/*</code> alanıyla sınırlar. Uyumluluk gerekmedikçe <code>MQTT_TOPIC_ENFORCEMENT=1</code> kullanın.</p></article>
+          <article class="card"><span class="card-tag">TLS / mTLS</span><h3>Sertifikaları doğrulayın</h3><p>MQTT TLS 1.2+, CA doğrulaması ve isteğe bağlı karşılıklı istemci sertifikası desteklenir. Web paneli için de HTTPS anahtar/sertifika ayarları kullanılabilir.</p></article>
+          <article class="card"><span class="card-tag">GİRİŞ KORUMASI</span><h3>Tekrarlanan denemeleri engelleyin</h3><p>MQTT ve web paneli başarısız girişleri ayrı pencere/eşik süreleriyle izlenir; eşik aşıldığında IP veya hesap geçici olarak engellenir.</p></article>
+          <article class="card"><span class="card-tag">GİZLİ VERİ</span><h3>Yedekleri de parola gibi koruyun</h3><p>Yedek paketi SMTP ve Netgsm parolaları ile ortam ayarlarını içerebilir. <code>.env</code>, SQLite dosyaları, sertifika private key’leri ve yedekleri Git’e göndermeyin.</p></article>
         </div>
       </section>
 
       <section id="sorun-giderme">
-        <span class="section-index">09 · SORUN GİDERME</span>
+        <span class="section-index">10 · SORUN GİDERME</span>
         <h2>Hızlı kontrol listesi.</h2>
         <table class="settings-table">
           <thead><tr><th>Belirti</th><th>Kontrol</th></tr></thead>
           <tbody>
             <tr><td>Cihaz çevrimiçi görünmüyor</td><td>Broker IP/port, ağ geçidi, kablo/PoE, MQTT Client Mode ve kullanıcı/parola eşleşmesini kontrol edin.</td></tr>
-            <tr><td><code>Not authorized</code></td><td>NetRelay MQTT User/Password değerlerinin sunucudaki <code>users.json</code> ile aynı olduğundan emin olun.</td></tr>
+            <tr><td><code>Not authorized</code></td><td>NetRelay MQTT User/Password değerlerini paneldeki MQTT Kullanıcıları kaydıyla karşılaştırın; hesabın aktif olduğundan ve cihazın yalnızca kendi topic alanını kullandığından emin olun.</td></tr>
             <tr><td>Komut cihaza ulaşmıyor</td><td>Cihazı yeni firmware ile yeniden başlatın; seri monitörde özel command topic aboneliğini doğrulayın.</td></tr>
             <tr><td>Yanlış cihaz komut alıyor</td><td>Her şubenin farklı MQTT kullanıcı adı kullandığını ve panelde doğru çevrimiçi hesabın seçildiğini doğrulayın.</td></tr>
             <tr><td>Input olayı görünmüyor</td><td>Input pinini, INPUT NAMES ayarını ve event topic loglarını kontrol edin. Giriş değişimi 30 ms kararlılık filtresinden geçer.</td></tr>
@@ -563,7 +608,7 @@
   <footer class="footer">
     <div class="footer-inner">
       <div><strong>NetRelay × MQTT Kullanım Kılavuzu</strong><p>Bu doküman, verilen MQTT test PDF’i, mevcut uygulama/firmware davranışı ve NetRelay’in resmî ürün bilgileri temel alınarak hazırlanmıştır.</p></div>
-      <div><a href="https://netrelay.tr/" target="_blank" rel="noopener">netrelay.tr ↗</a><p>* Teknik değerleri ve elektriksel limitleri her zaman ürününüzün güncel resmî dokümanından doğrulayın.</p></div>
+      <div><a href="https://github.com/mlteknoloji/mqttserver" target="_blank" rel="noopener">MQTT Server GitHub ↗</a><br><a href="https://netrelay.tr/" target="_blank" rel="noopener">netrelay.tr ↗</a><p>* Teknik değerleri ve elektriksel limitleri her zaman ürününüzün güncel resmî dokümanından doğrulayın.</p></div>
     </div>
   </footer>
 
