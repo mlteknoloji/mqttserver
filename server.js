@@ -14,6 +14,7 @@ const { createSecurityStore } = require('./security');
 const { createScheduledTaskStore } = require('./scheduled-tasks');
 const { createEmailNotificationStore } = require('./email-notifications');
 const { createWebAuthStore } = require('./web-auth');
+const { createMqttUserStore } = require('./mqtt-users');
 const { createFirmwareManager, MAX_FIRMWARE_SIZE } = require('./firmware-manager');
 
 const MQTT_PORT = Number(process.env.MQTT_PORT) || 1883;
@@ -42,6 +43,7 @@ const security = createSecurityStore({
 const scheduledTasks = createScheduledTaskStore({ databasePath: SECURITY_DB_PATH });
 const emailNotifications = createEmailNotificationStore({ databasePath: SECURITY_DB_PATH });
 const webAuth = createWebAuthStore({ databasePath: SECURITY_DB_PATH });
+const mqttUsers = createMqttUserStore({ databasePath: SECURITY_DB_PATH, usersFile: USERS_FILE });
 const firmwareManager = createFirmwareManager({ databasePath: SECURITY_DB_PATH, storageDirectory: path.join(__dirname, 'firmware-files') });
 const firmwareUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FIRMWARE_SIZE } });
 
@@ -183,30 +185,6 @@ function parseNetRelayEvent(message, client, topic) {
   };
 }
 
-function loadUsers() {
-  const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-
-  if (!Array.isArray(data.users) || data.users.length === 0) {
-    throw new Error('users.json içinde en az bir kullanıcı bulunmalıdır.');
-  }
-
-  const users = new Map();
-
-  for (const user of data.users) {
-    if (!user.username || !user.password) {
-      throw new Error('Her kullanıcı için username ve password zorunludur.');
-    }
-
-    if (users.has(user.username)) {
-      throw new Error(`Aynı kullanıcı adı birden fazla kullanılamaz: ${user.username}`);
-    }
-
-    users.set(user.username, user.password);
-  }
-
-  return users;
-}
-
 function getState(user) {
   const can = (permission) => webAuth.hasPermission(user, permission);
   return {
@@ -220,6 +198,7 @@ function getState(user) {
     logs: can('logs') ? logs : [],
     currentUser: user || null,
     webUsers: user?.role === 'admin' ? webAuth.listUsers() : [],
+    mqttUsers: user?.role === 'admin' ? mqttUsers.list() : [],
     permissionDefinitions: webAuth.permissions
   };
 }
@@ -251,7 +230,6 @@ function addDebugLog(message) {
 }
 
 async function startServer() {
-  const users = loadUsers();
   const broker = await Aedes.createBroker({
     authenticate(client, username, password, callback) {
       const remoteIp = security.normalizeIp(client.conn?.remoteAddress);
@@ -266,7 +244,7 @@ async function startServer() {
 
       const enteredUsername = username?.toString();
       const enteredPassword = password?.toString();
-      const isValid = users.get(enteredUsername) === enteredPassword;
+      const isValid = mqttUsers.authenticate(enteredUsername, enteredPassword);
 
       if (isValid) {
         client.authenticatedUsername = enteredUsername;
@@ -287,6 +265,12 @@ async function startServer() {
       callback(null, isValid);
     }
   });
+
+  function disconnectMqttUser(username) {
+    for (const client of Object.values(broker.clients)) {
+      if (client.authenticatedUsername?.toLowerCase() === String(username).toLowerCase()) client.conn?.destroy();
+    }
+  }
 
   function publishRelayCommand(target, relays, position) {
     const payload = JSON.stringify({
@@ -356,6 +340,7 @@ async function startServer() {
   app.set('views', path.join(__dirname, 'views'));
   app.use(express.urlencoded({ extended: false }));
   app.use(express.static(path.join(__dirname, 'public')));
+  app.get('/favicon.ico', (request, response) => response.redirect(301, '/favicon.svg'));
 
   app.get('/login', (request, response) => {
     const user = webAuth.fromRequest(request);
@@ -431,6 +416,12 @@ async function startServer() {
     if (user.role !== 'admin') return response.status(403).send('Bu sayfa yalnızca yöneticilere açıktır.');
     response.render('web-users', { currentUser: user });
   });
+  app.get('/mqtt-users', (request, response) => {
+    const user = webAuth.fromRequest(request); if (!user) return response.redirect('/login');
+    if (user.mustChangePassword) return response.redirect('/change-password');
+    if (user.role !== 'admin') return response.status(403).send('Bu sayfa yalnızca yöneticilere açıktır.');
+    response.render('mqtt-users', { currentUser: user });
+  });
 
   wss = new WebSocketServer({ server: webServer, verifyClient(info, done) {
     const user = webAuth.fromRequest(info.req);
@@ -447,10 +438,11 @@ async function startServer() {
       try {
         request = JSON.parse(rawMessage.toString());
         const requiredPermissions = {
-          publish: 'relay', scheduledTaskSave: 'schedules', scheduledTaskEnabled: 'schedules', scheduledTaskRemove: 'schedules',
+          publish: 'relay', restartDevice: 'relay', scheduledTaskSave: 'schedules', scheduledTaskEnabled: 'schedules', scheduledTaskRemove: 'schedules',
           firmwareUpdateStart: 'firmware', firmwareRemove: 'firmware',
           emailSettingsSave: 'email', emailMonitorSave: 'email', emailMonitorEnabled: 'email', emailMonitorRemove: 'email', emailSendTest: 'email',
-          blacklistAdd: 'blacklist', blacklistRemove: 'blacklist', debugLoggingSet: 'logs', webUserSave: 'users', webUserRemove: 'users'
+          blacklistAdd: 'blacklist', blacklistRemove: 'blacklist', debugLoggingSet: 'logs', webUserSave: 'users', webUserRemove: 'users',
+          mqttUserSave: 'users', mqttUserEnabled: 'users', mqttUserRemove: 'users'
         };
         const requiredPermission = requiredPermissions[request.type];
         if (requiredPermission && !webAuth.hasPermission(socket.authUser, requiredPermission)) throw new Error('Bu işlem için yetkiniz yok.');
@@ -463,6 +455,29 @@ async function startServer() {
         if (request.type === 'webUserRemove') {
           webAuth.removeUser(request.id, socket.authUser);
           socket.send(JSON.stringify({ type: 'webUserSuccess', message: 'Kullanıcı silindi.' }));
+          broadcastState(); return;
+        }
+        if (request.type === 'mqttUserSave') {
+          if (socket.authUser.role !== 'admin') throw new Error('Bu işlem için yönetici yetkisi gerekir.');
+          const previous = request.user?.id ? mqttUsers.get(request.user.id) : null;
+          const id = mqttUsers.save(request.user || {});
+          if (previous) disconnectMqttUser(previous.username);
+          socket.send(JSON.stringify({ type: 'mqttUserSuccess', message: `MQTT kullanıcısı kaydedildi (#${id}).` }));
+          broadcastState(); return;
+        }
+        if (request.type === 'mqttUserEnabled') {
+          if (socket.authUser.role !== 'admin') throw new Error('Bu işlem için yönetici yetkisi gerekir.');
+          const existing = mqttUsers.get(request.id);
+          mqttUsers.setEnabled(request.id, request.enabled === true);
+          if (existing && request.enabled !== true) disconnectMqttUser(existing.username);
+          broadcastState(); return;
+        }
+        if (request.type === 'mqttUserRemove') {
+          if (socket.authUser.role !== 'admin') throw new Error('Bu işlem için yönetici yetkisi gerekir.');
+          const existing = mqttUsers.get(request.id);
+          mqttUsers.remove(request.id);
+          if (existing) disconnectMqttUser(existing.username);
+          socket.send(JSON.stringify({ type: 'mqttUserSuccess', message: 'MQTT kullanıcısı silindi.' }));
           broadcastState(); return;
         }
         if (request.type === 'firmwareRemove') {
@@ -561,6 +576,18 @@ async function startServer() {
           return;
         }
 
+        if (request.type === 'restartDevice') {
+          const target = onlineClients.get(String(request.targetClientId || ''));
+          if (!target) throw new Error('Seçilen cihaz artık çevrimiçi değil.');
+          const payload = JSON.stringify({ type: 'netrelay', command: 'restart', targetUsername: target.username });
+          await new Promise((resolve, reject) => broker.publish({
+            cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload), qos: 1, retain: false, dup: false
+          }, (error) => error ? reject(error) : resolve()));
+          addLog('KOMUT', `${target.username} cihazına yeniden başlatma komutu gönderildi.`);
+          socket.send(JSON.stringify({ type: 'restartDeviceSuccess', message: 'Yeniden başlatma komutu gönderildi.' }));
+          return;
+        }
+
         if (request.type !== 'publish') return;
 
         const target = onlineClients.get(String(request.targetClientId || ''));
@@ -610,7 +637,7 @@ async function startServer() {
           }
         );
       } catch (error) {
-        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : request?.type?.startsWith('scheduledTask') ? 'scheduledTaskError' : request?.type?.startsWith('email') ? 'emailNotificationError' : request?.type?.startsWith('webUser') ? 'webUserError' : request?.type?.startsWith('firmware') ? 'firmwareError' : 'publishError';
+        const type = request?.type?.startsWith('blacklist') ? 'blacklistError' : request?.type?.startsWith('scheduledTask') ? 'scheduledTaskError' : request?.type?.startsWith('email') ? 'emailNotificationError' : request?.type?.startsWith('webUser') ? 'webUserError' : request?.type?.startsWith('mqttUser') ? 'mqttUserError' : request?.type?.startsWith('restartDevice') ? 'restartDeviceError' : request?.type?.startsWith('firmware') ? 'firmwareError' : 'publishError';
         socket.send(JSON.stringify({ type, message: error.message }));
       }
     });
@@ -755,7 +782,7 @@ async function startServer() {
       `MQTT koruması aktif: ${FAIL2BAN_FIND_TIME_MINUTES} dakikada ${FAIL2BAN_MAX_ATTEMPTS} hata, ${FAIL2BAN_BAN_TIME_MINUTES} dakika engel.`
     );
     addLog('SİSTEM', `MQTT server tüm ağlarda çalışıyor: ${HOST}:${MQTT_PORT}`);
-    addLog('SİSTEM', `${users.size} kullanıcı users.json dosyasından yüklendi.`);
+    addLog('SİSTEM', `${mqttUsers.list().length} MQTT kullanıcısı SQLite veritabanından yüklendi.`);
     for (const ip of getLocalIpAddresses()) {
       addLog('SİSTEM', `MQTT bağlantı adresi: mqtt://${ip}:${MQTT_PORT}`);
     }
@@ -794,6 +821,7 @@ function shutdown() {
   scheduledTasks.close();
   emailNotifications.close();
   webAuth.close();
+  mqttUsers.close();
   firmwareManager.close();
 }
 

@@ -162,6 +162,7 @@ legend { padding: 0 7px; color: #94a3b8; font-size: 13px; font-weight: 700; }
 .device-selector { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 20px; border-bottom: 1px solid #263247; }
 .device-selector label { display: grid; width: min(520px, 100%); gap: 8px; color: #94a3b8; font-size: 13px; font-weight: 700; }
 .device-selector > span { color: #64748b; font-size: 12px; }
+.device-selector-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; color: #64748b; font-size: 12px; }
 .io-device-meta { padding: 14px 20px 0; color: #64748b; font-size: 12px; font-weight: 700; }
 .io-visual { padding: 18px 20px 22px; }
 .io-visual h3, .raw-json h3 { margin: 0 0 18px; font-size: 15px; }
