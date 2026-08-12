@@ -266,6 +266,10 @@ function resolveDeviceType(username) {
   return mqttUsers.getByUsername(username)?.deviceType || DEFAULT_DEVICE_TYPE;
 }
 
+function resolveClientDeviceType(username, clientId) {
+  return /^mp[0-9a-f]{12}$/i.test(String(clientId || '')) ? 'netrelay_mp' : resolveDeviceType(username);
+}
+
 function broadcastState() {
   if (!wss) return;
 
@@ -350,7 +354,7 @@ async function startServer() {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
         if(isHomeAssistant&&/^netrelay\/[^/]+\/command$/.test(packet.topic))return callback(null);
-        const deviceType = username ? resolveDeviceType(username) : null;
+        const deviceType = username ? resolveClientDeviceType(username, client.id) : null;
         const typeMeta = deviceType ? getDeviceType(deviceType) : null;
         const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
         if (!username || !isDeviceTopicAllowed(deviceType, username, packet.topic)) {
@@ -369,7 +373,7 @@ async function startServer() {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
         if(isHomeAssistant&&(subscription.topic===`${ha.prefix}/#`||subscription.topic==='netrelay/+/events'||subscription.topic==='mpower/+/state'||subscription.topic==='mpower/+/outlet/+/json'))return callback(null,subscription);
-        const deviceType = username ? resolveDeviceType(username) : null;
+        const deviceType = username ? resolveClientDeviceType(username, client.id) : null;
         const typeMeta = deviceType ? getDeviceType(deviceType) : null;
         const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
         const allowed = username && isDeviceTopicAllowed(deviceType, username, subscription.topic);
@@ -1019,14 +1023,14 @@ async function startServer() {
 
   broker.on('clientReady', (client) => {
     const usernameWasOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
-    const deviceType = resolveDeviceType(client.authenticatedUsername);
+    const deviceType = resolveClientDeviceType(client.authenticatedUsername, client.id);
     const typeMeta = getDeviceType(deviceType);
     onlineClients.set(client.id, {
       clientId: client.id,
       username: client.authenticatedUsername,
       deviceType,
       deviceTypeLabel: typeMeta.label,
-      commandTopic: commandTopicFor(deviceType, client.authenticatedUsername),
+      commandTopic: commandTopicFor(deviceType, client.authenticatedUsername, client.id),
       remoteIp: security.normalizeIp(client.conn?.remoteAddress),
       status: 'UP',
       deviceUptimeMs: 0,
@@ -1113,6 +1117,11 @@ async function startServer() {
           outlets: mpowerEvent.outlets,
           relays: mpowerEvent.relays,
           custom: mpowerEvent.custom ?? currentClient.custom,
+          macAddress: mpowerEvent.macAddress || currentClient.macAddress,
+          firmware: mpowerEvent.firmware || currentClient.firmware,
+          overlay: mpowerEvent.overlay || currentClient.overlay,
+          ssid: mpowerEvent.ssid || currentClient.ssid,
+          deviceDateTime: mpowerEvent.deviceDateTime || currentClient.deviceDateTime,
           portCount: mpowerEvent.portCount || currentClient.portCount,
           lastJson: message,
           lastEventAt: mpowerEvent.serverReceivedAt,

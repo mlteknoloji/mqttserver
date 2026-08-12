@@ -19,7 +19,7 @@ const DEVICE_TYPES = Object.freeze({
     supportsInputs: false,
     supportsRestart: false,
     supportsSync: false,
-    defaultPortCount: 6,
+    defaultPortCount: 3,
     telemetryTopics: Object.freeze(['state', 'custom', 'outlet/+/json'])
   })
 });
@@ -40,14 +40,20 @@ function listDeviceTypes() {
   return Object.values(DEVICE_TYPES).map((item) => ({ id: item.id, label: item.label }));
 }
 
-function topicPrefix(deviceType, username) {
+function mpowerDeviceId(clientId) {
+  const value = String(clientId || '').trim();
+  return /^mp[0-9a-f]+$/i.test(value) ? value.slice(2).toLowerCase() : value;
+}
+
+function topicPrefix(deviceType, username, clientId) {
   const type = getDeviceType(deviceType);
+  if (type.id === 'netrelay_mp' && clientId) return `${type.topicRoot}/${username}/${mpowerDeviceId(clientId)}`;
   return `${type.topicRoot}/${username}`;
 }
 
-function commandTopicFor(deviceType, username) {
+function commandTopicFor(deviceType, username, clientId) {
   const type = getDeviceType(deviceType);
-  return `${topicPrefix(type.id, username)}/${type.commandSuffix}`;
+  return `${topicPrefix(type.id, username, clientId)}/${type.commandSuffix}`;
 }
 
 function isDeviceTopicAllowed(deviceType, username, topic) {
@@ -56,8 +62,9 @@ function isDeviceTopicAllowed(deviceType, username, topic) {
 }
 
 function parseMpowerTopic(topic, username) {
-  const prefix = `mpower/${username}/`;
-  if (!topic.startsWith(prefix) && topic !== `mpower/${username}`) return null;
+  const root = topicPrefix('netrelay_mp', username);
+  const prefix = `${root}/`;
+  if (!topic.startsWith(prefix) && topic !== root) return null;
   const rest = topic.slice(prefix.length);
   if (rest === 'state') return { kind: 'state' };
   if (rest === 'custom') return { kind: 'custom' };
@@ -76,5 +83,6 @@ module.exports = {
   topicPrefix,
   commandTopicFor,
   isDeviceTopicAllowed,
-  parseMpowerTopic
+  parseMpowerTopic,
+  mpowerDeviceId
 };
