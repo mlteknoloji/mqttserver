@@ -112,6 +112,8 @@ npm install
 
 `npm install`, programın ihtiyaç duyduğu paketleri `node_modules` klasörüne yükler. İlk kurulumdan sonra, bağımlılıklar değişmediği sürece tekrar çalıştırmanız gerekmez.
 
+> **Önemli:** İlk `npm start` öncesinde `.env` dosyasına `INITIAL_ADMIN_PASSWORD` yazmanız önerilir. Aksi halde yönetici parolası rastgele üretilip konsola yalnızca bir kez yazılır ve kaçırılırsa sıfırlanması gerekir. Ayrıntı için [`.env` ayarları](#env-ayarları) bölümüne bakın.
+
 ## Docker ile kurulum
 
 Hazır imaj GitHub Container Registry üzerinde `ghcr.io/mlteknoloji/mqttserver:latest` adıyla yayımlanır. Kurulum yapılacak makinede Docker Engine veya Docker Desktop ile Docker Compose bulunmalıdır.
@@ -216,7 +218,23 @@ FAIL2BAN_MAX_ATTEMPTS=5
 FAIL2BAN_FIND_TIME_MINUTES=10
 FAIL2BAN_BAN_TIME_MINUTES=60
 SECURITY_DB_PATH=security.sqlite3
+
+MQTT_TOPIC_ENFORCEMENT=1
+
+WEB_HTTPS_ENABLED=0
+WEB_HTTPS_PORT=3443
+WEB_HTTPS_KEY=certs/server-key.pem
+WEB_HTTPS_CERT=certs/server-cert.pem
+
+WEB_LOGIN_MAX_ATTEMPTS=5
+WEB_LOGIN_FIND_TIME_MINUTES=10
+WEB_LOGIN_LOCK_MINUTES=15
+
+INITIAL_ADMIN_USERNAME=admin@mlteknoloji.com
+INITIAL_ADMIN_PASSWORD=en-az-12-karakterli-guclu-parola
 ```
+
+> **İlk kurulumda yönetici parolası:** `.env` içinde `INITIAL_ADMIN_PASSWORD` tanımlıysa bu parola kullanılır. Tanımlı değilse güvenli rastgele parola üretilir ve `npm start` konsoluna **yalnızca bir kez** `[GÜVENLİK] İlk yönetici parolası (admin@mlteknoloji.com): ...` satırıyla yazılır. Bu satırı kaçırmamak için kurulumdan önce `.env`'e `INITIAL_ADMIN_PASSWORD` yazmanız önerilir. Parola unutulursa [Yönetici parolasını sıfırlama](#yönetici-parolasını-sıfırlama) bölümündeki komutla sıfırlanabilir.
 
 | Ayar | Açıklama |
 |---|---|
@@ -234,10 +252,21 @@ SECURITY_DB_PATH=security.sqlite3
 | `MQTT_TLS_REQUEST_CLIENT_CERT` | `1` olduğunda bağlanan cihazdan geçerli istemci sertifikası ister. |
 | `MQTT_TLS_CLIENT_CERT` | `npm run client` için isteğe bağlı istemci sertifikası. |
 | `MQTT_TLS_CLIENT_KEY` | Test istemcisi sertifikasına ait private key. |
-| `FAIL2BAN_MAX_ATTEMPTS` | Bir IP engellenmeden önce izin verilen başarısız giriş sayısı. |
-| `FAIL2BAN_FIND_TIME_MINUTES` | Başarısız girişlerin sayılacağı zaman aralığı. |
+| `FAIL2BAN_MAX_ATTEMPTS` | Bir IP engellenmeden önce izin verilen başarısız MQTT giriş sayısı. |
+| `FAIL2BAN_FIND_TIME_MINUTES` | Başarısız MQTT girişlerinin sayılacağı zaman aralığı. |
 | `FAIL2BAN_BAN_TIME_MINUTES` | Otomatik IP engelinin dakika cinsinden süresi. |
-| `SECURITY_DB_PATH` | Blacklist bilgilerinin saklanacağı SQLite dosyasının yolu. |
+| `SECURITY_DB_PATH` | Blacklist ve diğer verilerin saklanacağı SQLite dosyasının yolu. |
+| `MQTT_TOPIC_ENFORCEMENT` | `1` (varsayılan) olduğunda her MQTT kullanıcısı yalnızca kendi `netrelay/<kullanici>/*` topic'lerine erişebilir. `0` tüm topic'lere erişime izin verir. |
+| `WEB_HTTPS_ENABLED` | `1` olduğunda web paneli HTTPS üzerinden yayın yapar. |
+| `WEB_HTTPS_PORT` | HTTPS web paneli portu. Varsayılan `3443`. |
+| `WEB_HTTPS_KEY` | Web panelinin PEM private key dosyası. |
+| `WEB_HTTPS_CERT` | Web panelinin PEM sertifika dosyası. |
+| `WEB_HTTPS_CA` | Web paneli için isteğe bağlı CA sertifikası. |
+| `WEB_LOGIN_MAX_ATTEMPTS` | Web panelinde IP engellenmeden önce izin verilen başarısız giriş sayısı. |
+| `WEB_LOGIN_FIND_TIME_MINUTES` | Web panelinde başarısız girişlerin sayılacağı zaman aralığı. |
+| `WEB_LOGIN_LOCK_MINUTES` | Web paneli giriş kilidinin dakika cinsinden süresi. |
+| `INITIAL_ADMIN_USERNAME` | İlk kurulumda oluşturulan yönetici hesabının kullanıcı adı. Varsayılan `admin@mlteknoloji.com`. |
+| `INITIAL_ADMIN_PASSWORD` | İlk kurulumda yöneticiye atanacak parola. En az 12 karakter. Boşsa rastgele parola üretilip konsola yazılır. |
 
 Sunucu bilgisayarın IP adresini Windows'ta `ipconfig` komutuyla öğrenebilirsiniz. Örneğin sunucu IP adresi `192.168.1.100` ise `MQTT_HOST=192.168.1.100` kullanın.
 
@@ -782,6 +811,18 @@ Web paneli ilk kurulumda aşağıdaki yönetici hesabını otomatik oluşturur:
 - İlk parola: Sunucu konsolunda yalnızca bir kez gösterilen güvenli rastgele parola
 
 Bu parola yalnızca ilk giriş içindir. İlk başarılı girişten sonra panel, güvenlik kurallarına uygun yeni bir parola belirlenmeden yönetim ekranına erişilmesine izin vermez. Parola değiştirildikten sonra yeniden giriş yapılır. İlk parola kaybedilirse varsayılan/sabit bir parola denenmemeli; güvenli yönetici kurtarma süreci uygulanmalıdır.
+
+### Yönetici parolasını sıfırlama
+
+Yönetici parolası unutulursa ve panele giriş yapılamazsa, parola doğrudan veritabanından sıfırlanabilir. Aşağıdaki komutu proje klasöründe çalıştırın; bu işlem `admin@mlteknoloji.com` kullanıcısının parolasını yeniden rastgele üretip konsola yazdırır ve ilk girişte değiştirilmesini zorunlu kılar:
+
+```powershell
+node -e "const Database=require('better-sqlite3');const bcrypt=require('bcryptjs');const crypto=require('node:crypto');const db=new Database('security.sqlite3');const p=crypto.randomBytes(18).toString('base64url');db.prepare('UPDATE web_users SET password_hash=?, must_change_password=1, updated_at=? WHERE username=?').run(bcrypt.hashSync(p,12),Date.now(),'admin@mlteknoloji.com');db.prepare('DELETE FROM web_sessions').run();console.log('Yeni geçici parola:',p);"
+```
+
+Komut çıktısındaki parola ile panele giriş yapıldıktan sonra yeni bir parola belirlemeniz istenir. Bu işlemi yalnızca sunucuya doğrudan erişimi olan güvenilir kişiler yapmalıdır.
+
+> **Not:** `INITIAL_ADMIN_PASSWORD` ve `INITIAL_ADMIN_USERNAME` değişkenleri `.env` içinde tanımlıysa, ilk kurulumda bu değerler kullanılır. Tanımlı değilse rastgele parola üretilip konsola yazılır. Üretim ortamında `INITIAL_ADMIN_PASSWORD` ile en az 12 karakterli güçlü bir parola belirlemeniz önerilir.
 
 Yönetici, paneldeki **Kullanıcı Yönetimi** menüsünden yeni hesap oluşturabilir; kullanıcı adı, görünen ad, parola, hesap durumu ve bölüm yetkilerini düzenleyebilir. Verilebilen yetkiler genel bakış, röle komutu, zamanlanmış görevler, e-posta ayarları, MQTT blacklist, sunucu logları ve kullanıcı yönetimidir. Yetki kontrolleri hem arayüzde hem sunucu/WebSocket tarafında uygulanır. Sistemde daima en az bir aktif yönetici kalır; son aktif yönetici silinemez, pasifleştirilemez veya kullanıcı rolüne düşürülemez.
 

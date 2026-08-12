@@ -48,6 +48,8 @@ npm start
 
 For a downloaded archive, extract it, open a terminal in the project directory, run `npm install`, create `.env` and `users.json` from the examples, then run `npm start`.
 
+> **Important:** Before the first `npm start`, set `INITIAL_ADMIN_PASSWORD` in `.env`. Otherwise the admin password is generated randomly and printed to the console only once; if missed, it must be reset. See [Configuration](#configuration) for details.
+
 ## Docker installation
 
 The ready-to-run image is published to GitHub Container Registry as `ghcr.io/mlteknoloji/mqttserver:latest`. Docker Engine or Docker Desktop with Docker Compose is required on the target machine.
@@ -145,7 +147,23 @@ FAIL2BAN_MAX_ATTEMPTS=5
 FAIL2BAN_FIND_TIME_MINUTES=10
 FAIL2BAN_BAN_TIME_MINUTES=60
 SECURITY_DB_PATH=security.sqlite3
+
+MQTT_TOPIC_ENFORCEMENT=1
+
+WEB_HTTPS_ENABLED=0
+WEB_HTTPS_PORT=3443
+WEB_HTTPS_KEY=certs/server-key.pem
+WEB_HTTPS_CERT=certs/server-cert.pem
+
+WEB_LOGIN_MAX_ATTEMPTS=5
+WEB_LOGIN_FIND_TIME_MINUTES=10
+WEB_LOGIN_LOCK_MINUTES=15
+
+INITIAL_ADMIN_USERNAME=admin@mlteknoloji.com
+INITIAL_ADMIN_PASSWORD=at-least-12-char-strong-password
 ```
+
+> **Initial admin password:** If `INITIAL_ADMIN_PASSWORD` is set in `.env`, that password is used. Otherwise a secure random password is generated and printed to the `npm start` console **only once** as `[GÜVENLİK] İlk yönetici parolasi (admin@mlteknoloji.com): ...`. To avoid missing it, set `INITIAL_ADMIN_PASSWORD` in `.env` before installation. If the password is lost, see [Resetting the admin password](#resetting-the-admin-password).
 
 | Setting | Description |
 |---|---|
@@ -159,8 +177,18 @@ SECURITY_DB_PATH=security.sqlite3
 | `MQTT_TLS_KEY`, `MQTT_TLS_CERT` | PEM server private key and certificate. |
 | `MQTT_TLS_CA` | CA used for server/client certificate verification. |
 | `MQTT_TLS_REQUEST_CLIENT_CERT` | Set to `1` to require a valid client certificate. |
-| `FAIL2BAN_*` | Authentication-failure window, threshold and ban duration. |
+| `FAIL2BAN_*` | MQTT authentication-failure window, threshold and ban duration. |
 | `SECURITY_DB_PATH` | SQLite database path. |
+| `MQTT_TOPIC_ENFORCEMENT` | `1` (default) restricts each MQTT user to their own `netrelay/<username>/*` topics. `0` allows access to all topics. |
+| `WEB_HTTPS_ENABLED` | Set to `1` to serve the web panel over HTTPS. |
+| `WEB_HTTPS_PORT` | HTTPS web panel port. Default `3443`. |
+| `WEB_HTTPS_KEY`, `WEB_HTTPS_CERT` | PEM private key and certificate for the web panel. |
+| `WEB_HTTPS_CA` | Optional CA certificate for the web panel. |
+| `WEB_LOGIN_MAX_ATTEMPTS` | Failed web-login attempts before an IP is locked. |
+| `WEB_LOGIN_FIND_TIME_MINUTES` | Time window for counting failed web logins. |
+| `WEB_LOGIN_LOCK_MINUTES` | Web-login lock duration in minutes. |
+| `INITIAL_ADMIN_USERNAME` | Administrator username created on first install. Default `admin@mlteknoloji.com`. |
+| `INITIAL_ADMIN_PASSWORD` | Password assigned to the admin on first install. At least 12 characters. If empty, a random password is generated and printed to the console. |
 
 `.env`, `users.json`, SQLite databases, certificates' private keys and backup archives are ignored by Git. If any of them were ever published, remove them from history and rotate every affected secret.
 
@@ -192,6 +220,18 @@ http://SERVER_IP:8082
 ```
 
 The first web administrator is created automatically. The generated initial password is printed once to the server console and must be changed at first sign-in. The system always retains at least one active administrator; the final active admin cannot be deleted, disabled or demoted.
+
+### Resetting the admin password
+
+If the admin password is lost and the panel cannot be accessed, it can be reset directly in the database. Run the following command in the project directory; it generates a new random password for `admin@mlteknoloji.com`, prints it to the console, and forces a password change on first sign-in:
+
+```powershell
+node -e "const Database=require('better-sqlite3');const bcrypt=require('bcryptjs');const crypto=require('node:crypto');const db=new Database('security.sqlite3');const p=crypto.randomBytes(18).toString('base64url');db.prepare('UPDATE web_users SET password_hash=?, must_change_password=1, updated_at=? WHERE username=?').run(bcrypt.hashSync(p,12),Date.now(),'admin@mlteknoloji.com');db.prepare('DELETE FROM web_sessions').run();console.log('New temporary password:',p);"
+```
+
+After signing in with the printed password, you will be asked to set a new one. Only trusted personnel with direct server access should perform this procedure.
+
+> **Note:** If `INITIAL_ADMIN_PASSWORD` and `INITIAL_ADMIN_USERNAME` are defined in `.env`, those values are used on first install. If undefined, a random password is generated and printed to the console. In production, setting `INITIAL_ADMIN_PASSWORD` with at least 12 characters is recommended.
 
 For unattended Windows startup, see [Windows service setup](docs/WINDOWS-SERVICE.en.md).
 
