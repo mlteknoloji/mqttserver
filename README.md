@@ -833,13 +833,27 @@ Bu parola yalnızca ilk giriş içindir. İlk başarılı girişten sonra panel,
 
 ### Yönetici parolasını sıfırlama
 
-Yönetici parolası unutulursa ve panele giriş yapılamazsa, parola doğrudan veritabanından sıfırlanabilir. Aşağıdaki komutu proje klasöründe çalıştırın; bu işlem `admin@mlteknoloji.com` kullanıcısının parolasını yeniden rastgele üretip konsola yazdırır ve ilk girişte değiştirilmesini zorunlu kılar:
+Yönetici parolası unutulursa paneli `.env` içindeki değerlere göre yeniden oluşturabilirsiniz. Proje klasöründe:
 
 ```powershell
-node -e "const Database=require('better-sqlite3');const bcrypt=require('bcryptjs');const crypto=require('node:crypto');const db=new Database('security.sqlite3');const p=crypto.randomBytes(18).toString('base64url');db.prepare('UPDATE web_users SET password_hash=?, must_change_password=1, updated_at=? WHERE username=?').run(bcrypt.hashSync(p,12),Date.now(),'admin@mlteknoloji.com');db.prepare('DELETE FROM web_sessions').run();console.log('Yeni geçici parola:',p);"
+npm run reset-admin
 ```
 
-Komut çıktısındaki parola ile panele giriş yapıldıktan sonra yeni bir parola belirlemeniz istenir. Bu işlemi yalnızca sunucuya doğrudan erişimi olan güvenilir kişiler yapmalıdır.
+Türkçe alias:
+
+```powershell
+npm run sifre-sifirla
+```
+
+Komut `INITIAL_ADMIN_USERNAME` ve `INITIAL_ADMIN_PASSWORD` değerlerini kullanır. Hesap yoksa oluşturur, varsa parolayı günceller, tüm oturumları kapatır ve hesabı yönetici olarak etkinleştirir.
+
+- `INITIAL_ADMIN_PASSWORD` tanımlıysa o parola yazılır; hemen giriş yapılabilir.
+- Tanımlı değilse rastgele geçici parola üretilir ve konsola yazılır; ilk girişte değiştirilmesi istenir.
+
+```env
+INITIAL_ADMIN_USERNAME=admin@mlteknoloji.com
+INITIAL_ADMIN_PASSWORD=en-az-12-karakterli-guclu-parola
+```
 
 > **Not:** `INITIAL_ADMIN_PASSWORD` ve `INITIAL_ADMIN_USERNAME` değişkenleri `.env` içinde tanımlıysa, ilk kurulumda bu değerler kullanılır. Tanımlı değilse rastgele parola üretilip konsola yazılır. Üretim ortamında `INITIAL_ADMIN_PASSWORD` ile en az 12 karakterli güçlü bir parola belirlemeniz önerilir.
 

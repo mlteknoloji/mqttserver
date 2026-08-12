@@ -229,13 +229,27 @@ The first web administrator is created automatically. The generated initial pass
 
 ### Resetting the admin password
 
-If the admin password is lost and the panel cannot be accessed, it can be reset directly in the database. Run the following command in the project directory; it generates a new random password for `admin@mlteknoloji.com`, prints it to the console, and forces a password change on first sign-in:
+If the admin password is lost, recreate or reset it from the `.env` values. In the project directory:
 
 ```powershell
-node -e "const Database=require('better-sqlite3');const bcrypt=require('bcryptjs');const crypto=require('node:crypto');const db=new Database('security.sqlite3');const p=crypto.randomBytes(18).toString('base64url');db.prepare('UPDATE web_users SET password_hash=?, must_change_password=1, updated_at=? WHERE username=?').run(bcrypt.hashSync(p,12),Date.now(),'admin@mlteknoloji.com');db.prepare('DELETE FROM web_sessions').run();console.log('New temporary password:',p);"
+npm run reset-admin
 ```
 
-After signing in with the printed password, you will be asked to set a new one. Only trusted personnel with direct server access should perform this procedure.
+Turkish alias:
+
+```powershell
+npm run sifre-sifirla
+```
+
+The command uses `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD`. It creates the account when missing, updates the password when present, clears all sessions, and ensures the account is an enabled administrator.
+
+- If `INITIAL_ADMIN_PASSWORD` is set, that password is applied and sign-in works immediately.
+- If it is empty, a random temporary password is generated and printed; a password change is required on first sign-in.
+
+```env
+INITIAL_ADMIN_USERNAME=admin@mlteknoloji.com
+INITIAL_ADMIN_PASSWORD=at-least-12-char-strong-password
+```
 
 > **Note:** If `INITIAL_ADMIN_PASSWORD` and `INITIAL_ADMIN_USERNAME` are defined in `.env`, those values are used on first install. If undefined, a random password is generated and printed to the console. In production, setting `INITIAL_ADMIN_PASSWORD` with at least 12 characters is recommended.
 

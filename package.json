@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "client": "node client.js",
-    "test": "node --test"
+    "test": "node --test",
+    "reset-admin": "node scripts/reset-admin-password.js",
+    "sifre-sifirla": "node scripts/reset-admin-password.js"
   },
   "dependencies": {
     "aedes": "^1.1.1",

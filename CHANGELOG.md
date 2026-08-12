@@ -10,6 +10,7 @@
 - **Panel ve I/O:** Cihaz tipine göre komut formu, outlet kontrolü, pulse / cycle aksiyonları.
 - **REST API:** `POST /api/v1/devices/:username/mpower` native mPower komutları; mevcut `/relays` uç noktası NetRelayMP için de çalışır.
 - **Kurulum güncelleme betikleri:** Ayarları koruyarak GitHub/Docker güncellemesi için `scripts/update.ps1` ve `scripts/update.sh`.
+- **Yönetici parola sıfırlama:** `.env` içindeki `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD` ile `npm run reset-admin` (alias: `npm run sifre-sifirla`).
 
 ### Korunan ayarlar
 Güncellemede `.env`, `users.json`, `security.sqlite3` ve Docker volume verileri değişmez. Mevcut NetRelay hesapları varsayılan olarak `netrelay` tipinde kalır.
