@@ -79,6 +79,21 @@ function createSecurityStore(options = {}) {
     return Boolean(statements.getBan.get(ip));
   }
 
+  function getBlacklistEntry(value) {
+    const ip = normalizeIp(value);
+    if (!ip) return null;
+    cleanupExpired();
+    const entry = statements.getBan.get(ip);
+    if (!entry) return null;
+    return {
+      ip: entry.ip,
+      reason: entry.reason,
+      failedAttempts: entry.failed_attempts,
+      bannedAt: new Date(entry.banned_at).toISOString(),
+      expiresAt: entry.expires_at ? new Date(entry.expires_at).toISOString() : null
+    };
+  }
+
   function clearFailures(value) {
     const ip = normalizeIp(value);
     if (ip) statements.clearFailure.run(ip);
@@ -126,6 +141,7 @@ function createSecurityStore(options = {}) {
     cleanupExpired,
     clearFailures,
     close: () => db.close(),
+    getBlacklistEntry,
     isBlacklisted,
     listBlacklist,
     normalizeIp,

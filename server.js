@@ -301,26 +301,27 @@ async function startServer() {
   if (appliedRestore) console.log(`[YEDEK] Geri yükleme uygulandı: ${appliedRestore.databaseTarget}`);
   const broker = await Aedes.createBroker({
     authenticate(client, username, password, callback) {
-      const remoteIp = security.normalizeIp(client.conn?.remoteAddress);
+      const remoteIp = security.normalizeIp(client.conn?.remoteAddress) || 'bilinmiyor';
+      const clientId = client.id || 'bilinmiyor';
       addDebugLog(
-        `MQTT doğrulama başladı | IP: ${remoteIp || 'bilinmiyor'} | Client ID: ${client.id || 'bilinmiyor'} | TLS: ${client.conn?.encrypted ? 'evet' : 'hayır'}`
+        `MQTT doğrulama başladı | IP: ${remoteIp} | Client ID: ${clientId} | TLS: ${client.conn?.encrypted ? 'evet' : 'hayır'}`
       );
-      if (security.isBlacklisted(remoteIp)) {
-        addLog('ENGELLENDİ', `Blacklisted IP MQTT bağlantısı reddedildi: ${remoteIp}`);
+      const ban = security.getBlacklistEntry(remoteIp);
+      if (ban) {
+        addLog(
+          'ENGELLENDİ',
+          `MQTT bağlantısı reddedildi | Sebep: blacklist | IP: ${ban.ip} | Blacklist nedeni: ${ban.reason} | Client ID: ${clientId}`
+        );
         callback(null, false);
         return;
       }
 
-      const enteredUsername = username?.toString();
-      const enteredPassword = password?.toString();
-      const isValid = mqttUsers.authenticate(enteredUsername, enteredPassword);
-
-      if (isValid) {
-        client.authenticatedUsername = enteredUsername;
+      const auth = mqttUsers.authenticateResult(username?.toString(), password);
+      if (auth.ok) {
+        client.authenticatedUsername = auth.username;
         security.clearFailures(remoteIp);
-        addDebugLog(`MQTT doğrulama başarılı | IP: ${remoteIp} | Kullanıcı: ${enteredUsername}`);
+        addDebugLog(`MQTT doğrulama başarılı | IP: ${remoteIp} | Kullanıcı: ${auth.username}`);
       } else {
-        addDebugLog(`MQTT doğrulama başarısız | IP: ${remoteIp} | Kullanıcı: ${enteredUsername || 'boş'}`);
         const result = security.recordFailure(remoteIp);
         if (result.banned) {
           addLog(
@@ -328,20 +329,35 @@ async function startServer() {
             `IP ${result.ip}, ${result.attempts} başarısız girişten sonra ${FAIL2BAN_BAN_TIME_MINUTES} dakika engellendi.`
           );
         }
-        addLog('REDDEDİLDİ', `Client ID: ${client.id || 'bilinmiyor'}`);
+        addLog(
+          'REDDEDİLDİ',
+          `MQTT kimlik doğrulama reddedildi | Sebep: ${auth.reason} | Kullanıcı: ${auth.username || username?.toString() || 'boş'} | IP: ${remoteIp} | Client ID: ${clientId} | Deneme: ${result.attempts}/${FAIL2BAN_MAX_ATTEMPTS}`
+        );
       }
 
-      callback(null, isValid);
+      callback(null, auth.ok);
     },
 
     authorizePublish(client, packet, callback) {
-      if (packet.topic.startsWith('$SYS/')) return callback(new Error('$SYS topic alanı ayrılmıştır.'));
+      if (packet.topic.startsWith('$SYS/')) {
+        addLog(
+          'YETKİ',
+          `Yayın reddedildi | Sebep: $SYS topic alanı ayrılmıştır | Kullanıcı: ${client?.authenticatedUsername || client?.id || 'bilinmiyor'} | Topic: ${packet.topic}`
+        );
+        return callback(new Error('$SYS topic alanı ayrılmıştır.'));
+      }
       if (client && MQTT_TOPIC_ENFORCEMENT) {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
         if(isHomeAssistant&&/^netrelay\/[^/]+\/command$/.test(packet.topic))return callback(null);
-        if (!username || !isDeviceTopicAllowed(resolveDeviceType(username), username, packet.topic)) {
-          addLog('YETKİ', `Yayın engellendi | Kullanıcı: ${username || client.id} | Topic: ${packet.topic}`);
+        const deviceType = username ? resolveDeviceType(username) : null;
+        const typeMeta = deviceType ? getDeviceType(deviceType) : null;
+        const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
+        if (!username || !isDeviceTopicAllowed(deviceType, username, packet.topic)) {
+          addLog(
+            'YETKİ',
+            `Yayın reddedildi | Sebep: topic yetkisi yok | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${packet.topic} | Beklenen: ${expected}`
+          );
           return callback(new Error('Bu topic için yayın yetkiniz yok.'));
         }
       }
@@ -353,9 +369,15 @@ async function startServer() {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
         if(isHomeAssistant&&(subscription.topic===`${ha.prefix}/#`||subscription.topic==='netrelay/+/events'||subscription.topic==='mpower/+/state'||subscription.topic==='mpower/+/outlet/+/json'))return callback(null,subscription);
-        const allowed = username && isDeviceTopicAllowed(resolveDeviceType(username), username, subscription.topic);
+        const deviceType = username ? resolveDeviceType(username) : null;
+        const typeMeta = deviceType ? getDeviceType(deviceType) : null;
+        const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
+        const allowed = username && isDeviceTopicAllowed(deviceType, username, subscription.topic);
         if (!allowed) {
-          addLog('YETKİ', `Abonelik engellendi | Kullanıcı: ${username || client.id} | Topic: ${subscription.topic}`);
+          addLog(
+            'YETKİ',
+            `Abonelik reddedildi | Sebep: topic yetkisi yok | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${subscription.topic} | Beklenen: ${expected}`
+          );
           return callback(null, null);
         }
         return callback(null, subscription);
@@ -550,7 +572,7 @@ async function startServer() {
     if (!result.ok) {
       addLog(
         'GİRİŞ',
-        `Başarısız web paneli girişi | IP: ${security.normalizeIp(request.socket?.remoteAddress) || 'bilinmiyor'}${result.locked ? ' | Kilitli IP denemesi' : ''}`
+        `Web paneli girişi reddedildi | Sebep: ${result.message || (result.locked ? 'IP kilitli' : 'kullanıcı adı veya parola yanlış')} | Kullanıcı: ${String(request.body.username || '').trim() || 'boş'} | IP: ${security.normalizeIp(request.socket?.remoteAddress) || 'bilinmiyor'}`
       );
       return response.status(result.locked ? 429 : 401)
         .render('login', { error: result.message || 'Kullanıcı adı veya parola yanlış.' });
@@ -632,14 +654,33 @@ async function startServer() {
   const apiUsage=new Map();
   function requireApiScope(scope){return(request,response,next)=>{
     const authorization=String(request.headers.authorization||''),token=authorization.startsWith('Bearer ')?authorization.slice(7).trim():String(request.headers['x-api-key']||''),key=apiKeys.authenticate(token);
-    if(!key)return response.status(401).json({error:'Geçerli Bearer API anahtarı gerekli.',code:'INVALID_API_KEY'});
-    if(!key.scopes.includes(scope)&&!(scope==='read'&&key.scopes.includes('control')))return response.status(403).json({error:`${scope} API yetkisi gerekli.`,code:'INSUFFICIENT_SCOPE'});
-    const now=Date.now(),usage=apiUsage.get(key.id)||{start:now,count:0};if(now-usage.start>=60000){usage.start=now;usage.count=0;}usage.count++;apiUsage.set(key.id,usage);response.setHeader('X-RateLimit-Limit','120');response.setHeader('X-RateLimit-Remaining',String(Math.max(0,120-usage.count)));if(usage.count>120)return response.status(429).json({error:'Dakikalık API istek sınırı aşıldı.',code:'RATE_LIMITED'});
+    const remoteIp=security.normalizeIp(request.socket?.remoteAddress)||'bilinmiyor';
+    if(!key){
+      addLog('API',`REST isteği reddedildi | Sebep: geçersiz API anahtarı | Scope: ${scope} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(401).json({error:'Geçerli Bearer API anahtarı gerekli.',code:'INVALID_API_KEY'});
+    }
+    if(!key.scopes.includes(scope)&&!(scope==='read'&&key.scopes.includes('control'))){
+      addLog('API',`REST isteği reddedildi | Sebep: yetersiz yetki (${scope}) | Anahtar: ${key.name} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(403).json({error:`${scope} API yetkisi gerekli.`,code:'INSUFFICIENT_SCOPE'});
+    }
+    const now=Date.now(),usage=apiUsage.get(key.id)||{start:now,count:0};if(now-usage.start>=60000){usage.start=now;usage.count=0;}usage.count++;apiUsage.set(key.id,usage);response.setHeader('X-RateLimit-Limit','120');response.setHeader('X-RateLimit-Remaining',String(Math.max(0,120-usage.count)));if(usage.count>120){
+      addLog('API',`REST isteği reddedildi | Sebep: rate limit | Anahtar: ${key.name} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(429).json({error:'Dakikalık API istek sınırı aşıldı.',code:'RATE_LIMITED'});
+    }
     request.apiKey=key;
-    if(request.params.username&&!apiCanAccessUser(key,request.params.username))return response.status(404).json({error:'Cihaz bulunamadı.',code:'DEVICE_NOT_FOUND'});
-    if(request.params.id&&request.path.startsWith('/api/v1/device-groups/')&&!apiCanAccessGroup(key,request.params.id))return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});
+    if(request.params.username&&!apiCanAccessUser(key,request.params.username)){
+      addLog('API',`REST isteği reddedildi | Sebep: cihaz grubu kapsamı dışı | Anahtar: ${key.name} | Cihaz: ${request.params.username} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(404).json({error:'Cihaz bulunamadı.',code:'DEVICE_NOT_FOUND'});
+    }
+    if(request.params.id&&request.path.startsWith('/api/v1/device-groups/')&&!apiCanAccessGroup(key,request.params.id)){
+      addLog('API',`REST isteği reddedildi | Sebep: grup kapsamı dışı | Anahtar: ${key.name} | Grup: ${request.params.id} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});
+    }
     const groupDefinitionMutation=(request.method==='POST'&&request.path==='/api/v1/device-groups')||(['PUT','DELETE'].includes(request.method)&&/^\/api\/v1\/device-groups\/\d+$/.test(request.path));
-    if(key.allowedGroupIds.length&&groupDefinitionMutation)return response.status(403).json({error:'Grup kapsamlı API anahtarları grup tanımını değiştiremez.',code:'GROUP_SCOPE_LOCKED'});
+    if(key.allowedGroupIds.length&&groupDefinitionMutation){
+      addLog('API',`REST isteği reddedildi | Sebep: grup tanımı kilitli | Anahtar: ${key.name} | Yol: ${request.method} ${request.path} | IP: ${remoteIp}`);
+      return response.status(403).json({error:'Grup kapsamlı API anahtarları grup tanımını değiştiremez.',code:'GROUP_SCOPE_LOCKED'});
+    }
     next();
   };}
   const apiGroupsFor=key=>groupsForKey(key,deviceAutomation.listGroups());

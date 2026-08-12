@@ -752,9 +752,20 @@ Test istemcisi `.env` içindeki `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME` ve `MQ
 
 ### `REDDEDİLDİ` mesajı
 
-- Cihazdaki kullanıcı adı ve parolayı `users.json` ile karşılaştırın.
+Eski format yalnızca `Client ID: ...` gösterirdi. Güncel sürüm sebebi de yazar:
+
+```text
+[REDDEDİLDİ] MQTT kimlik doğrulama reddedildi | Sebep: parola hatalı | Kullanıcı: cihaz1 | IP: 192.168.1.10 | Client ID: mqttjs_ee1519ac | Deneme: 1/5
+```
+
+Hâlâ yalnızca `Client ID: ...` görüyorsanız sunucu eski kodla çalışıyordur; yeniden başlatın veya `.\scripts\update.ps1` ile güncelleyin.
+
+Olası sebepler: `parola hatalı`, `hesap pasif`, `kullanıcı bulunamadı`, `parola boş`, `kullanıcı adı boş`.
+
+- Cihaz / istemcideki kullanıcı adı ve parolayı paneldeki **MQTT Kullanıcıları** ile karşılaştırın.
 - Başında/sonunda boşluk olmadığını kontrol edin.
-- `users.json` değiştiyse sunucuyu yeniden başlatın.
+- `mqttjs_...` Client ID genelde mqtt.js tabanlı istemcidir (`npm run client`, test aracı, Home Assistant vb.).
+- MQTT kullanıcısı değiştiyse veya pasifse hesabı kontrol edin.
 
 ### MQTT bağlantısı kurulamıyor
 

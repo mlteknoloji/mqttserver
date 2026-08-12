@@ -51,9 +51,21 @@ function createMqttUserStore({ databasePath, usersFile }) {
   function getByUsername(username) {
     return publicUser(db.prepare('SELECT * FROM mqtt_users WHERE username=? COLLATE NOCASE').get(String(username || '').trim()));
   }
+  function authenticateResult(username, password) {
+    const trimmed = String(username == null ? '' : username).trim();
+    const enteredPassword = password == null ? '' : Buffer.isBuffer(password) ? password.toString('utf8') : String(password);
+    if (!trimmed) return { ok: false, reason: 'kullanıcı adı boş' };
+    if (!enteredPassword) return { ok: false, reason: 'parola boş' };
+    const row = db.prepare('SELECT username, password_hash, enabled FROM mqtt_users WHERE username=? COLLATE NOCASE').get(trimmed);
+    if (!row) return { ok: false, reason: 'kullanıcı bulunamadı', username: trimmed };
+    if (row.enabled !== 1) return { ok: false, reason: 'hesap pasif', username: row.username };
+    if (!bcrypt.compareSync(enteredPassword, row.password_hash)) {
+      return { ok: false, reason: 'parola hatalı', username: row.username };
+    }
+    return { ok: true, username: row.username };
+  }
   function authenticate(username, password) {
-    const row = db.prepare('SELECT password_hash FROM mqtt_users WHERE username=? COLLATE NOCASE AND enabled=1').get(String(username || '').trim());
-    return Boolean(row && bcrypt.compareSync(String(password || ''), row.password_hash));
+    return authenticateResult(username, password).ok;
   }
   function save(input) {
     const id = Number(input.id || 0), username = String(input.username || '').trim(), password = String(input.password || '');
@@ -81,7 +93,7 @@ function createMqttUserStore({ databasePath, usersFile }) {
   function remove(id) {
     if (!db.prepare('DELETE FROM mqtt_users WHERE id=?').run(Number(id)).changes) throw new Error('MQTT kullanıcısı bulunamadı.');
   }
-  return { list, get, getByUsername, authenticate, save, setEnabled, remove, close: () => db.close() };
+  return { list, get, getByUsername, authenticate, authenticateResult, save, setEnabled, remove, close: () => db.close() };
 }
 
 module.exports = { createMqttUserStore };
