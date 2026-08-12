@@ -2,11 +2,18 @@
   "users": [
     {
       "username": "admin",
-      "password": "buraya-guclu-bir-parola-yazin"
+      "password": "buraya-guclu-bir-parola-yazin",
+      "deviceType": "netrelay"
     },
     {
       "username": "cihaz1",
-      "password": "buraya-farkli-bir-parola-yazin"
+      "password": "buraya-farkli-bir-parola-yazin",
+      "deviceType": "netrelay"
+    },
+    {
+      "username": "24a43cd75475",
+      "password": "buraya-mpower-parolasi-yazin",
+      "deviceType": "netrelay_mp"
     }
   ]
 }

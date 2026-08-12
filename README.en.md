@@ -112,6 +112,12 @@ docker compose pull
 docker compose up -d
 ```
 
+Or use the helper script (preserves `.env` and volumes):
+
+```powershell
+.\scripts\update.ps1 -Docker
+```
+
 Stop or restart the server with:
 
 ```powershell

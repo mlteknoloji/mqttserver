@@ -19,7 +19,8 @@ Authorization: Bearer nr_...
 | GET | `/api/v1/device-groups` | read | Assigned device groups |
 | GET | `/api/v1/device-groups/:id` | read | One assigned group |
 | POST | `/api/v1/device-groups/:id/relays` | control | Group relay command |
-| POST | `/api/v1/devices/:username/relays` | control | Device relay command |
+| POST | `/api/v1/devices/:username/relays` | control | Device relay / outlet command (NetRelay and NetRelayMP) |
+| POST | `/api/v1/devices/:username/mpower` | control | Native NetRelayMP mPower command |
 | POST | `/api/v1/devices/:username/restart` | control | Restart device |
 | POST | `/api/v1/devices/:username/sync` | control | Request current state |
 
@@ -29,7 +30,13 @@ Relay request:
 {"relays":[1,2],"position":1,"delay":0}
 ```
 
-Accepted commands return `202 Accepted`. Common error codes include `INVALID_API_KEY`, `INSUFFICIENT_SCOPE`, `RATE_LIMITED`, `DEVICE_OFFLINE`, `INVALID_COMMAND` and `PUBLISH_FAILED`.
+Native NetRelayMP command example (`POST /devices/:username/mpower`):
+
+```json
+{"action":"on","port":1}
+```
+
+Accepted commands return `202 Accepted`. Common error codes include `INVALID_API_KEY`, `INSUFFICIENT_SCOPE`, `RATE_LIMITED`, `DEVICE_OFFLINE`, `INVALID_COMMAND`, `INVALID_DEVICE_TYPE`, `UNSUPPORTED` and `COMMAND_FAILED`.
 
 ## Device-group isolation
 

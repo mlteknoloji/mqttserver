@@ -172,9 +172,17 @@ Standart dışı port kullanımı otomatik internet taramalarını azaltabilir a
 Yeni imaj yayımlandığında kurulumu güncelleyin:
 
 ```powershell
+.\scripts\update.ps1 -Docker
+```
+
+veya:
+
+```powershell
 docker compose pull
 docker compose up -d
 ```
+
+`.env` ve volume içindeki veritabanı / log / firmware dosyaları korunur.
 
 Sunucuyu durdurmak veya tekrar başlatmak için:
 
@@ -837,6 +845,32 @@ Mevcut `S-3.3.4` cihazlarında MQTT OTA komutu bulunmadığından OTA destekli i
 MQTT cihazlarının bağlantı geçmişi `logs/device-status-YYYY-MM-DD.log` dosyalarına JSON Lines biçiminde yazılır. `DEVICE_UP` cihaz bağlantısını, `DEVICE_DOWN` bağlantı kopmasını, `SERVER_UP` uygulamanın açılışını ve `SERVER_DOWN` kontrollü kapanışı belirtir. Her satır UTC zamanını, Türkiye yerel saatini, MQTT kullanıcı adını, Client ID'yi ve uzak IP adresini içerir.
 
 Yöneticiler **Sistem → Log Rotasyonu** sayfasından eski günlüklerin kaç gün sonra `.gz` olarak arşivleneceğini ve kaç gün sonra silineceğini ayarlayabilir. Rotasyon başlangıçta ve altı saatte bir çalışır; aynı sayfadan elle de başlatılabilir.
+
+## Sunucu güncelleme (ayarları koruyarak)
+
+Kurulu klasörde ayarları değiştirmeden GitHub / Docker güncellemesi için:
+
+```powershell
+# Windows (otomatik: Docker varsa docker, değilse git)
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\update.ps1
+
+# Zorla Docker
+.\scripts\update.ps1 -Docker
+
+# Zorla Git
+.\scripts\update.ps1 -Git
+```
+
+```bash
+# Linux / macOS
+chmod +x scripts/update.sh
+./scripts/update.sh
+./scripts/update.sh --docker
+./scripts/update.sh --git
+```
+
+Korunan dosyalar: `.env`, `users.json`, `security.sqlite3` (ve Docker volume verileri). Yerel kod değişikliği varsa git güncellemesi güvenlik için iptal edilir.
 
 ## Windows servisi
 

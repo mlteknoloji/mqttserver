@@ -27,8 +27,20 @@ Start-Service NetRelayMQTT
 
 Before an update, stop the service, update files and dependencies, then start it again. Preserve `.env` and `security.sqlite3`.
 
+Recommended script:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\update.ps1
+```
+
+The script runs `git pull`, `npm ci --omit=dev`, and restarts the `NetRelayMQTT` service or PM2 process when present. `.env`, `users.json`, and `security.sqlite3` stay untouched because they are gitignored. Local code changes cancel the update for safety.
+
+Manual steps:
+
 ```powershell
 Stop-Service NetRelayMQTT
+git pull
 npm ci --omit=dev
 Start-Service NetRelayMQTT
 ```

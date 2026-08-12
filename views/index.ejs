@@ -129,16 +129,16 @@
 
       <section id="relay-command" class="card panel relay-panel page-section">
         <div class="panel-title">
-          <h2>NetRelay komutu gönder</h2>
-          <span>JSON / MQTT</span>
+          <h2>Cihaz komutu gönder</h2>
+          <span>NetRelay / NetRelayMP JSON · MQTT</span>
         </div>
         <div class="relay-form">
           <label>
             Hedef çevrimiçi kullanıcı
             <select id="target-client">
               <% onlineClients.forEach((client) => { %>
-                <option value="<%= client.clientId %>" data-username="<%= client.username %>" data-topic="<%= client.commandTopic %>">
-                  <%= client.username %> — <%= client.clientId %>
+                <option value="<%= client.clientId %>" data-username="<%= client.username %>" data-topic="<%= client.commandTopic %>" data-device-type="<%= client.deviceType || 'netrelay' %>">
+                  <%= client.deviceTypeLabel || client.deviceType || 'NetRelay' %> · <%= client.username %> — <%= client.clientId %>
                 </option>
               <% }) %>
             </select>
@@ -149,33 +149,43 @@
             <input id="command-topic" readonly>
           </label>
 
-          <fieldset>
-            <legend>Tetiklenecek röleler</legend>
-            <div class="relay-options relay-ios-grid">
-              <% [1, 2, 3, 4].forEach((relay) => { %>
-                <label class="relay-ios-option">
-                  <input class="relay-checkbox" type="checkbox" value="<%= relay %>">
-                  <span class="relay-ios-number"><%= relay %></span>
-                  <span class="relay-ios-copy"><strong>Röle <%= relay %></strong><small>Kontrole dahil et</small></span>
-                  <span class="relay-ios-switch" aria-hidden="true"></span>
-                </label>
-              <% }) %>
-              <button id="select-all" class="secondary-button relay-select-all" type="button">Tümünü Seç</button>
-            </div>
-          </fieldset>
+          <div id="netrelay-command-fields">
+            <fieldset>
+              <legend>Tetiklenecek röleler</legend>
+              <div class="relay-options relay-ios-grid">
+                <% [1, 2, 3, 4].forEach((relay) => { %>
+                  <label class="relay-ios-option">
+                    <input class="relay-checkbox" type="checkbox" value="<%= relay %>">
+                    <span class="relay-ios-number"><%= relay %></span>
+                    <span class="relay-ios-copy"><strong>Röle <%= relay %></strong><small>Kontrole dahil et</small></span>
+                    <span class="relay-ios-switch" aria-hidden="true"></span>
+                  </label>
+                <% }) %>
+                <button id="select-all" class="secondary-button relay-select-all" type="button">Tümünü Seç</button>
+              </div>
+            </fieldset>
 
-          <fieldset>
-            <legend>Buton konumu</legend>
-            <div class="relay-position-control">
-              <label class="relay-position-option relay-position-on"><input type="radio" name="position" value="1" checked><span><strong>AÇIK</strong><small>Konum 1</small></span></label>
-              <label class="relay-position-option relay-position-off"><input type="radio" name="position" value="0"><span><strong>KAPALI</strong><small>Konum 0</small></span></label>
-            </div>
-          </fieldset>
+            <fieldset>
+              <legend>Buton konumu</legend>
+              <div class="relay-position-control">
+                <label class="relay-position-option relay-position-on"><input type="radio" name="position" value="1" checked><span><strong>AÇIK</strong><small>Konum 1</small></span></label>
+                <label class="relay-position-option relay-position-off"><input type="radio" name="position" value="0"><span><strong>KAPALI</strong><small>Konum 0</small></span></label>
+              </div>
+            </fieldset>
 
-          <label>
-            Gecikme (saniye)
-            <input id="relay-delay" type="number" min="0" max="4294967" step="1" value="0">
-          </label>
+            <label>
+              Gecikme (saniye)
+              <input id="relay-delay" type="number" min="0" max="4294967" step="1" value="0">
+            </label>
+          </div>
+
+          <div id="mpower-command-fields" class="hidden">
+            <label>Action<select id="mpower-action"><option value="on">on</option><option value="off">off</option><option value="pulse">pulse</option><option value="cycle">cycle</option><option value="update">update</option></select></label>
+            <label>Port<input id="mpower-port" value="1" placeholder="1 veya all"></label>
+            <label>Delay (sn)<input id="mpower-delay" type="number" min="0" max="4294967" value="10"></label>
+            <label>Pulse to<select id="mpower-to"><option value="1">1 (ON)</option><option value="0">0 (OFF)</option></select></label>
+            <label>Update URL<input id="mpower-url" placeholder="http://pc/pkg.tar"></label>
+          </div>
 
           <label>
             <span class="json-field-header"><span>Gönderilecek JSON mesajı</span><button id="copy-json-payload" class="secondary-button compact" type="button">Kopyala</button></span>
@@ -376,8 +386,9 @@
 
       function renderDeviceIo() {
         const device = latestOnlineClients.find((client) => client.clientId === ioDeviceSelect.value);
+        const isMp = device?.deviceType === 'netrelay_mp';
         ioRelays.replaceChildren(); ioInputs.replaceChildren();
-        document.getElementById('io-last-seen').textContent = device ? `Son görülme: ${device.lastSeenAt || device.connectedAt}` : 'Cihaz seçilmedi';
+        document.getElementById('io-last-seen').textContent = device ? `${device.deviceTypeLabel || device.deviceType || 'NetRelay'} · Son görülme: ${device.lastSeenAt || device.connectedAt}` : 'Cihaz seçilmedi';
         const canControl = signedInUser?.permissions?.includes('relay');
         const inputVoltage = device?.inputs?.find((input) => input?.voltage != null && Number.isFinite(Number(input.voltage)))?.voltage;
         const voltage = device?.voltage != null && Number.isFinite(Number(device.voltage)) ? Number(device.voltage) : inputVoltage != null && Number.isFinite(Number(inputVoltage)) ? Number(inputVoltage) : null;
@@ -385,18 +396,38 @@
         document.getElementById('io-device-meta').textContent = device
           ? `Date Time: ${device.lastEventAt ? new Date(device.lastEventAt).toLocaleString('tr-TR') : device.lastSeenAt || '—'}, Voltage: ${voltage == null ? '—' : `${voltage.toFixed(2)} V`}, Uptime: ${formatUptime(device.deviceUptimeMs)}, Temperature: ${temperature}`
           : 'Date Time: —, Voltage: —, Uptime: —, Temperature: —';
-        for (let index = 0; index < 4; index++) {
-          const state = device?.relays?.[index]; const output=document.createElement('div'); output.className=`io-output ${state===1?'active':''}`;
-          const outputLabel=document.createElement('span');outputLabel.className='io-output-label';outputLabel.textContent=`OUT ${index+1}`;
-          const toggle=document.createElement('button');toggle.type='button';toggle.className=`io-switch ${state===1?'active':''}`;toggle.dataset.ioRelay=index+1;toggle.dataset.ioPosition=state===1?0:1;toggle.disabled=!device||!canControl;toggle.setAttribute('aria-label',`Röle ${index+1} ${state===1?'kapat':'aç'}`);const toggleText=document.createElement('span');toggleText.textContent=state===1?'ON':state===0?'OFF':'—';toggle.appendChild(toggleText);output.append(outputLabel,toggle);ioRelays.appendChild(output);
-          const input=device?.inputs?.[index];const inputState=input?.io;const inputItem=document.createElement('div');inputItem.className=`io-input ${inputState===1?'active':''}`;const inputLabel=document.createElement('span');inputLabel.className='io-input-label';inputLabel.textContent=input?.name||`INP${index+1}`;const bar=document.createElement('span');bar.className='io-input-bar';const detail=document.createElement('small');detail.textContent=`${inputState===1?'ON':inputState===0?'OFF':'—'} · ${input?.voltage != null&&Number.isFinite(Number(input.voltage))?`${Number(input.voltage).toFixed(2)} V`:'Voltaj —'}`;inputItem.append(inputLabel,bar,detail);ioInputs.appendChild(inputItem);
+        if (isMp) {
+          const outlets = device.outlets?.length ? device.outlets : Array.from({ length: device.portCount || 6 }, (_, index) => ({ port: index + 1, output: device.relays?.[index] ?? null }));
+          outlets.forEach((outlet, index) => {
+            const state = outlet.output;
+            const output = document.createElement('div'); output.className = `io-output ${state === 1 ? 'active' : ''}`;
+            const outputLabel = document.createElement('span'); outputLabel.className = 'io-output-label'; outputLabel.textContent = outlet.name || `OUT ${outlet.port || index + 1}`;
+            const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = `io-switch ${state === 1 ? 'active' : ''}`;
+            toggle.dataset.ioPort = outlet.port || index + 1; toggle.dataset.ioPosition = state === 1 ? 0 : 1; toggle.disabled = !canControl;
+            const toggleText = document.createElement('span'); toggleText.textContent = state === 1 ? 'ON' : state === 0 ? 'OFF' : '—'; toggle.appendChild(toggleText);
+            const detail = document.createElement('small'); detail.textContent = [outlet.power != null ? `${Number(outlet.power).toFixed(1)} W` : '', outlet.voltage != null ? `${Number(outlet.voltage).toFixed(1)} V` : ''].filter(Boolean).join(' · ') || 'Telemetri bekleniyor';
+            output.append(outputLabel, toggle, detail); ioRelays.appendChild(output);
+          });
+        } else {
+          for (let index = 0; index < 4; index++) {
+            const state = device?.relays?.[index]; const output=document.createElement('div'); output.className=`io-output ${state===1?'active':''}`;
+            const outputLabel=document.createElement('span');outputLabel.className='io-output-label';outputLabel.textContent=`OUT ${index+1}`;
+            const toggle=document.createElement('button');toggle.type='button';toggle.className=`io-switch ${state===1?'active':''}`;toggle.dataset.ioRelay=index+1;toggle.dataset.ioPosition=state===1?0:1;toggle.disabled=!device||!canControl;toggle.setAttribute('aria-label',`Röle ${index+1} ${state===1?'kapat':'aç'}`);const toggleText=document.createElement('span');toggleText.textContent=state===1?'ON':state===0?'OFF':'—';toggle.appendChild(toggleText);output.append(outputLabel,toggle);ioRelays.appendChild(output);
+            const input=device?.inputs?.[index];const inputState=input?.io;const inputItem=document.createElement('div');inputItem.className=`io-input ${inputState===1?'active':''}`;const inputLabel=document.createElement('span');inputLabel.className='io-input-label';inputLabel.textContent=input?.name||`INP${index+1}`;const bar=document.createElement('span');bar.className='io-input-bar';const detail=document.createElement('small');detail.textContent=`${inputState===1?'ON':inputState===0?'OFF':'—'} · ${input?.voltage != null&&Number.isFinite(Number(input.voltage))?`${Number(input.voltage).toFixed(2)} V`:'Voltaj —'}`;inputItem.append(inputLabel,bar,detail);ioInputs.appendChild(inputItem);
+          }
         }
         if (!device?.lastJson) { ioRawJson.setAttribute('data-i18n-translate',''); ioRawJson.textContent='Cihazdan henüz JSON verisi alınmadı.'; }
         else { ioRawJson.removeAttribute('data-i18n-translate'); try { ioRawJson.textContent=JSON.stringify(JSON.parse(device.lastJson),null,2); } catch { ioRawJson.textContent=device.lastJson; } }
       }
       ioDeviceSelect.addEventListener('change', renderDeviceIo);
       ioRelays.addEventListener('click', (event) => {
-        const button=event.target.closest('[data-io-relay]'); const device=latestOnlineClients.find((client)=>client.clientId===ioDeviceSelect.value); if(!button||!device||!socket||socket.readyState!==WebSocket.OPEN)return;
+        const button=event.target.closest('[data-io-relay],[data-io-port]'); const device=latestOnlineClients.find((client)=>client.clientId===ioDeviceSelect.value); if(!button||!device||!socket||socket.readyState!==WebSocket.OPEN)return;
+        if (device.deviceType === 'netrelay_mp') {
+          const on = Number(button.dataset.ioPosition) === 1;
+          socket.send(JSON.stringify({type:'publish',targetClientId:device.clientId,payload:JSON.stringify({action:on?'on':'off',port:Number(button.dataset.ioPort)})}));
+          ioCommandResult.textContent=`Port ${button.dataset.ioPort} ${on?'açıldı':'kapatıldı'}.`;ioCommandResult.className='result-success';
+          return;
+        }
         socket.send(JSON.stringify({type:'publish',targetClientId:device.clientId,payload:JSON.stringify({type:'netrelay',command:'set',targetUsername:device.username,relays:[Number(button.dataset.ioRelay)],position:Number(button.dataset.ioPosition),delay:0})}));
         ioCommandResult.textContent=`Röle ${button.dataset.ioRelay} komutu gönderildi.`;ioCommandResult.className='result-success';
       });
@@ -610,6 +641,32 @@
 
       function updatePayload() {
         const selectedTarget = targetClientElement.selectedOptions[0];
+        const deviceType = selectedTarget?.dataset.deviceType || 'netrelay';
+        const isMp = deviceType === 'netrelay_mp';
+        document.getElementById('netrelay-command-fields').classList.toggle('hidden', isMp);
+        document.getElementById('mpower-command-fields').classList.toggle('hidden', !isMp);
+        topicElement.value = selectedTarget?.dataset.topic || '';
+
+        if (isMp) {
+          const action = document.getElementById('mpower-action').value;
+          const command = { action };
+          if (action === 'update') {
+            command.url = document.getElementById('mpower-url').value.trim();
+          } else if (action === 'cycle') {
+            const portRaw = document.getElementById('mpower-port').value.trim();
+            command.port = portRaw === 'all' ? 'all' : Number(portRaw || 1);
+            command.delay = Number(document.getElementById('mpower-delay').value || 0);
+          } else if (action === 'pulse') {
+            command.port = Number(document.getElementById('mpower-port').value || 1);
+            command.delay = Number(document.getElementById('mpower-delay').value || 0);
+            command.to = Number(document.getElementById('mpower-to').value);
+          } else {
+            command.port = Number(document.getElementById('mpower-port').value || 1);
+          }
+          payloadElement.value = JSON.stringify(command, null, 2);
+          return;
+        }
+
         const relays = relayCheckboxes
           .filter((checkbox) => checkbox.checked)
           .map((checkbox) => Number(checkbox.value));
@@ -622,7 +679,6 @@
           position: Number(document.querySelector('input[name="position"]:checked').value),
           delay: Number(relayDelayElement.value)
         }, null, 2);
-        topicElement.value = selectedTarget?.dataset.topic || '';
         const allSelected=relayCheckboxes.length>0&&relayCheckboxes.every(checkbox=>checkbox.checked);
         document.getElementById('select-all').textContent=allSelected?'Seçimi Temizle':'Tümünü Seç';
       }
@@ -631,6 +687,9 @@
       document.querySelectorAll('input[name="position"]').forEach((radio) => radio.addEventListener('change', updatePayload));
       relayDelayElement.addEventListener('input', updatePayload);
       targetClientElement.addEventListener('change', updatePayload);
+      ['mpower-action','mpower-port','mpower-delay','mpower-to','mpower-url'].forEach((id)=>document.getElementById(id).addEventListener('input', updatePayload));
+      document.getElementById('mpower-action').addEventListener('change', updatePayload);
+      document.getElementById('mpower-to').addEventListener('change', updatePayload);
       document.getElementById('select-all').addEventListener('click', () => {
         const shouldSelect=!relayCheckboxes.every(checkbox=>checkbox.checked);
         relayCheckboxes.forEach((checkbox) => { checkbox.checked = shouldSelect; });
@@ -727,7 +786,7 @@
           const displayName = document.createElement('strong');
           displayName.textContent = client.hostname || client.username;
           const username = document.createElement('small');
-          username.textContent = client.username;
+          username.textContent = `${client.deviceTypeLabel || client.deviceType || 'NetRelay'} · ${client.username}`;
           deviceLink.append(displayName, username);
           userCell.appendChild(deviceLink);
 
@@ -743,7 +802,8 @@
           option.value = client.clientId;
           option.dataset.username = client.username;
           option.dataset.topic = client.commandTopic;
-          option.textContent = `${client.username} — ${client.clientId}`;
+          option.dataset.deviceType = client.deviceType || 'netrelay';
+          option.textContent = `${client.deviceTypeLabel || client.deviceType || 'NetRelay'} · ${client.username} — ${client.clientId}`;
           targetClientElement.appendChild(option);
         }
 
@@ -754,7 +814,7 @@
         updatePayload();
 
         const selectedIoClient=ioDeviceSelect.value; ioDeviceSelect.replaceChildren(new Option('Çevrimiçi cihaz seçin',''));
-        for(const client of state.onlineClients){const option=new Option(`${client.username} — ${client.hostname||client.clientId}`,client.clientId);ioDeviceSelect.appendChild(option)}
+        for(const client of state.onlineClients){const option=new Option(`${client.deviceTypeLabel||client.deviceType||'NetRelay'} · ${client.username} — ${client.hostname||client.clientId}`,client.clientId);ioDeviceSelect.appendChild(option)}
         if([...ioDeviceSelect.options].some((option)=>option.value===selectedIoClient))ioDeviceSelect.value=selectedIoClient; renderDeviceIo();
 
         scheduledTasks = state.scheduledTasks || [];

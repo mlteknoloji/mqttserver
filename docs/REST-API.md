@@ -22,7 +22,8 @@ Authorization: Bearer nr_...
 | PUT | `/api/v1/device-groups/:id` | control | Cihaz grubunu günceller |
 | DELETE | `/api/v1/device-groups/:id` | control | Cihaz grubunu siler |
 | POST | `/api/v1/device-groups/:id/relays` | control | Gruba röle komutu gönderir |
-| POST | `/api/v1/devices/:username/relays` | control | Röle komutu |
+| POST | `/api/v1/devices/:username/relays` | control | Röle / outlet komutu (NetRelay ve NetRelayMP) |
+| POST | `/api/v1/devices/:username/mpower` | control | NetRelayMP native mPower komutu |
 | POST | `/api/v1/devices/:username/restart` | control | Cihazı yeniden başlatır |
 | POST | `/api/v1/devices/:username/sync` | control | Cihaz durumunu yeniler |
 
@@ -32,7 +33,21 @@ Röle isteği:
 {"relays":[1,2],"position":1,"delay":0}
 ```
 
-Başarılı komut `202 Accepted` döndürür. Yaygın hata kodları: `INVALID_API_KEY`, `INSUFFICIENT_SCOPE`, `RATE_LIMITED`, `DEVICE_OFFLINE`, `INVALID_COMMAND` ve `PUBLISH_FAILED`.
+NetRelayMP native komut örneği (`POST /devices/:username/mpower`):
+
+```json
+{"action":"on","port":1}
+```
+
+```json
+{"action":"pulse","port":1,"delay":10,"to":1}
+```
+
+```json
+{"action":"cycle","port":"all","delay":10}
+```
+
+Başarılı komut `202 Accepted` döndürür. Yaygın hata kodları: `INVALID_API_KEY`, `INSUFFICIENT_SCOPE`, `RATE_LIMITED`, `DEVICE_OFFLINE`, `INVALID_COMMAND`, `INVALID_DEVICE_TYPE`, `UNSUPPORTED` ve `COMMAND_FAILED`.
 
 ## Mobil uygulama entegrasyonu
 

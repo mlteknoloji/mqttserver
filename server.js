@@ -25,6 +25,14 @@ const { createNetgsmStore } = require('./netgsm');
 const { createDeviceAutomationStore } = require('./device-automation');
 const { createLogRotation } = require('./log-rotation');
 const { parseNetRelayEvent } = require('./netrelay-event');
+const { parseMpowerEvent, validateMpowerCommand } = require('./mpower-event');
+const {
+  DEFAULT_DEVICE_TYPE,
+  getDeviceType,
+  listDeviceTypes,
+  commandTopicFor,
+  isDeviceTopicAllowed
+} = require('./device-types');
 const { stateChanges } = require('./state-delta');
 const { deviceStateChanges } = require('./device-state-change');
 const { createSystemSettings } = require('./system-settings');
@@ -41,7 +49,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const MQTT_TLS_ENABLED = process.env.MQTT_TLS_ENABLED === '1';
 const MQTT_TLS_PORT = Number(process.env.MQTT_TLS_PORT) || 8883;
 const MQTT_TLS_REQUEST_CLIENT_CERT = process.env.MQTT_TLS_REQUEST_CLIENT_CERT === '1';
-// Varsayılan olarak her kullanıcı yalnızca kendi netrelay/<kullanici>/* topic'lerini kullanabilir.
+// Varsayılan olarak her kullanıcı yalnızca kendi cihaz tipine ait <kök>/<kullanici>/* topic'lerini kullanabilir.
 // Mevcut sistemlerde davranışı gevşetmek için MQTT_TOPIC_ENFORCEMENT=0 yapılabilir.
 const MQTT_TOPIC_ENFORCEMENT = process.env.MQTT_TOPIC_ENFORCEMENT !== '0';
 const FIRMWARE_PUBLIC_BASE_URL = String(process.env.FIRMWARE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
@@ -243,6 +251,7 @@ function getState(user) {
     currentUser: user || null,
     webUsers: user?.role === 'admin' ? webAuth.listUsers() : [],
     mqttUsers: user?.role === 'admin' ? mqttUsers.list() : [],
+    deviceTypes: listDeviceTypes(),
     permissionDefinitions: webAuth.permissions,
     historyStats: can('dashboard') || can('logs') ? historyStatsCache.value : { events: 0, connections: {}, averageUptimeMs: 0 },
     automationRules: can('schedules') ? rules.list() : [],
@@ -251,6 +260,10 @@ function getState(user) {
     commandQueue: can('relay') ? deviceAutomation.listQueue() : [],
     knownMqttUsernames: can('relay') || can('schedules') ? mqttUsers.list().map(x=>x.username) : []
   };
+}
+
+function resolveDeviceType(username) {
+  return mqttUsers.getByUsername(username)?.deviceType || DEFAULT_DEVICE_TYPE;
 }
 
 function broadcastState() {
@@ -327,8 +340,7 @@ async function startServer() {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
         if(isHomeAssistant&&/^netrelay\/[^/]+\/command$/.test(packet.topic))return callback(null);
-        const prefix = username ? `netrelay/${username}/` : null;
-        if (!prefix || !(packet.topic === `netrelay/${username}` || packet.topic.startsWith(prefix))) {
+        if (!username || !isDeviceTopicAllowed(resolveDeviceType(username), username, packet.topic)) {
           addLog('YETKİ', `Yayın engellendi | Kullanıcı: ${username || client.id} | Topic: ${packet.topic}`);
           return callback(new Error('Bu topic için yayın yetkiniz yok.'));
         }
@@ -340,9 +352,8 @@ async function startServer() {
       if (client && MQTT_TOPIC_ENFORCEMENT) {
         const username = client.authenticatedUsername;
         const ha=homeAssistant.get(),isHomeAssistant=ha.enabled&&username?.toLowerCase()===ha.mqttUsername.toLowerCase();
-        if(isHomeAssistant&&(subscription.topic===`${ha.prefix}/#`||subscription.topic==='netrelay/+/events'))return callback(null,subscription);
-        const prefix = username ? `netrelay/${username}/` : null;
-        const allowed = prefix && (subscription.topic === `netrelay/${username}` || subscription.topic.startsWith(prefix));
+        if(isHomeAssistant&&(subscription.topic===`${ha.prefix}/#`||subscription.topic==='netrelay/+/events'||subscription.topic==='mpower/+/state'||subscription.topic==='mpower/+/outlet/+/json'))return callback(null,subscription);
+        const allowed = username && isDeviceTopicAllowed(resolveDeviceType(username), username, subscription.topic);
         if (!allowed) {
           addLog('YETKİ', `Abonelik engellendi | Kullanıcı: ${username || client.id} | Topic: ${subscription.topic}`);
           return callback(null, null);
@@ -359,18 +370,44 @@ async function startServer() {
     }
   }
 
-  function publishRelayCommand(target, relays, position, delay = 0) {
-    const payload = JSON.stringify({
-      type: 'netrelay', command: 'set', commandId: createCommandId(), targetUsername: target.username,
-      relays, position, delay
-    });
+  function publishMqttJson(topic, payload) {
+    const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
     return new Promise((resolve, reject) => broker.publish({
-      cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload),
+      cmd: 'publish', topic, payload: Buffer.from(body),
       qos: 1, retain: false, dup: false
-    }, (error) => error ? reject(error) : resolve(payload)));
+    }, (error) => error ? reject(error) : resolve(body)));
   }
 
-  async function publishHomeAssistantDiscovery(username){for(const item of homeAssistant.messages(username)){await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:item.topic,payload:Buffer.from(JSON.stringify(item.payload)),qos:1,retain:true,dup:false},error=>error?reject(error):resolve()));}}
+  function publishMpowerCommand(target, command) {
+    const validated = validateMpowerCommand(command);
+    if (!validated.ok) return Promise.reject(new Error(validated.error));
+    return publishMqttJson(target.commandTopic, validated.command);
+  }
+
+  async function publishRelayCommand(target, relays, position, delay = 0) {
+    if (target.deviceType === 'netrelay_mp') {
+      const payloads = [];
+      for (const port of [...new Set(relays)]) {
+        const command = delay > 0
+          ? { action: 'pulse', port, delay, to: position }
+          : { action: position === 1 ? 'on' : 'off', port };
+        payloads.push(await publishMpowerCommand(target, command));
+      }
+      return payloads[payloads.length - 1];
+    }
+    const payload = {
+      type: 'netrelay', command: 'set', commandId: createCommandId(), targetUsername: target.username,
+      relays, position, delay
+    };
+    return publishMqttJson(target.commandTopic, payload);
+  }
+
+  async function publishHomeAssistantDiscovery(username){
+    if (resolveDeviceType(username) !== 'netrelay') return;
+    for(const item of homeAssistant.messages(username)){
+      await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:item.topic,payload:Buffer.from(JSON.stringify(item.payload)),qos:1,retain:true,dup:false},error=>error?reject(error):resolve()));
+    }
+  }
 
   const ruleMessage = (template, rule, event) => String(template || 'NetRelay kuralı tetiklendi: {{rule}} / {{device}}')
     .replaceAll('{{rule}}', rule.name).replaceAll('{{device}}', event.mqttUsername || event.username || '')
@@ -404,8 +441,18 @@ async function startServer() {
   async function deliverQueuedCommands(target) {
     for (const queued of deviceAutomation.pending(target.username)) {
       try {
-        const queuedPayload={...queued.payload,commandId:queued.payload.commandId||createCommandId()};
-        await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:target.commandTopic,payload:Buffer.from(JSON.stringify(queuedPayload)),qos:1,retain:false,dup:false},error=>error?reject(error):resolve()));
+        let queuedPayload={...queued.payload,commandId:queued.payload.commandId||createCommandId()};
+        if (target.deviceType === 'netrelay_mp' && queuedPayload.type === 'netrelay' && queuedPayload.command === 'set') {
+          const relays = Array.isArray(queuedPayload.relays) ? queuedPayload.relays : [];
+          for (const port of relays) {
+            const command = queuedPayload.delay > 0
+              ? { action: 'pulse', port, delay: queuedPayload.delay, to: queuedPayload.position }
+              : { action: queuedPayload.position === 1 ? 'on' : 'off', port };
+            await publishMpowerCommand(target, command);
+          }
+        } else {
+          await publishMqttJson(target.commandTopic, queuedPayload);
+        }
         deviceAutomation.markDelivered(queued.id); addLog('KUYRUK', `${target.username} için kuyruktaki #${queued.id} komutu gönderildi.`);
       } catch(error){deviceAutomation.markFailed(queued.id,error.message);addLog('HATA',`Kuyruk #${queued.id}: ${error.message}`);break;}
     }
@@ -610,8 +657,9 @@ async function startServer() {
   app.put('/api/v1/device-groups/:id',requireApiScope('control'),(request,response)=>{try{const id=deviceAutomation.saveGroup({...request.body,id:Number(request.params.id)}),group=deviceAutomation.listGroups().find(x=>x.id===id);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupUpdate',target:String(id),remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{name:group.name,members:group.members}});response.json({group});}catch(error){response.status(/bulunamadı/i.test(error.message)?404:400).json({error:error.message,code:/bulunamadı/i.test(error.message)?'GROUP_NOT_FOUND':'INVALID_GROUP'});}});
   app.delete('/api/v1/device-groups/:id',requireApiScope('control'),(request,response)=>{try{deviceAutomation.removeGroup(request.params.id);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupRemove',target:String(request.params.id),remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.status(204).end();}catch(error){response.status(404).json({error:error.message,code:'GROUP_NOT_FOUND'});}});
   app.post('/api/v1/device-groups/:id/relays',requireApiScope('control'),async(request,response)=>{try{const group=deviceAutomation.listGroups().find(x=>x.id===Number(request.params.id));if(!group)return response.status(404).json({error:'Cihaz grubu bulunamadı.',code:'GROUP_NOT_FOUND'});const relays=[...new Set((request.body.relays||[]).map(Number))],position=Number(request.body.position),delay=Number(request.body.delay||0),queueOffline=request.body.queueOffline===true;if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>4)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0||delay>4294967)return response.status(400).json({error:'Grup röle komutu geçersiz.',code:'INVALID_COMMAND'});const results=[];for(const username of group.members){const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===username.toLowerCase());if(target){await publishRelayCommand(target,relays,position,delay);results.push({username,status:'sent'});}else if(queueOffline){const commandId=createCommandId(),queueId=deviceAutomation.enqueue(username,{type:'netrelay',command:'set',commandId,targetUsername:username,relays,position,delay},`api-group:${group.id}`);results.push({username,status:'queued',queueId});}else results.push({username,status:'offline'});}history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiDeviceGroupRelayCommand',target:String(group.id),remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{relays,position,delay,queueOffline,results}});broadcastState();response.status(202).json({accepted:true,group:{id:group.id,name:group.name},summary:{sent:results.filter(x=>x.status==='sent').length,queued:results.filter(x=>x.status==='queued').length,offline:results.filter(x=>x.status==='offline').length},results});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
-  app.post('/api/v1/devices/:username/relays',requireApiScope('control'),async(request,response)=>{try{const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const relays=[...new Set((request.body.relays||[]).map(Number))],position=Number(request.body.position),delay=Number(request.body.delay||0);if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>4)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0||delay>4294967)return response.status(400).json({error:'Röle komutu geçersiz.',code:'INVALID_COMMAND'});const payload=await publishRelayCommand(target,relays,position,delay);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiRelayCommand',target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{relays,position,delay}});response.status(202).json({accepted:true,command:JSON.parse(payload)});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
-  app.post('/api/v1/devices/:username/:action',requireApiScope('control'),async(request,response)=>{try{if(!['restart','sync'].includes(request.params.action))return response.status(404).json({error:'API işlemi bulunamadı.',code:'NOT_FOUND'});const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const payload={type:'netrelay',command:request.params.action,commandId:createCommandId(),targetUsername:target.username};await new Promise((resolve,reject)=>broker.publish({cmd:'publish',topic:target.commandTopic,payload:Buffer.from(JSON.stringify(payload)),qos:1,retain:false,dup:false},error=>error?reject(error):resolve()));history.addAudit({actor:`api:${request.apiKey.name}`,action:`apiDevice${request.params.action}`,target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.status(202).json({accepted:true,command:payload});}catch(error){response.status(500).json({error:error.message,code:'PUBLISH_FAILED'});}});
+  app.post('/api/v1/devices/:username/relays',requireApiScope('control'),async(request,response)=>{try{const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const relays=[...new Set((request.body.relays||[]).map(Number))],position=Number(request.body.position),delay=Number(request.body.delay||0);if(!relays.length||relays.some(x=>!Number.isInteger(x)||x<1||x>32)||![0,1].includes(position)||!Number.isInteger(delay)||delay<0||delay>4294967)return response.status(400).json({error:'Röle komutu geçersiz.',code:'INVALID_COMMAND'});if(target.deviceType==='netrelay'&&relays.some(x=>x>4))return response.status(400).json({error:'NetRelay röleleri 1..4 olmalıdır.',code:'INVALID_COMMAND'});const payload=await publishRelayCommand(target,relays,position,delay);history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiRelayCommand',target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:{relays,position,delay,deviceType:target.deviceType}});response.status(202).json({accepted:true,commandTopic:target.commandTopic,payload});}catch(error){response.status(400).json({error:error.message,code:'COMMAND_FAILED'});}});
+  app.post('/api/v1/devices/:username/mpower',requireApiScope('control'),async(request,response)=>{try{const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});if(target.deviceType!=='netrelay_mp')return response.status(400).json({error:'Hedef cihaz NetRelayMP değil.',code:'INVALID_DEVICE_TYPE'});const payload=await publishMpowerCommand(target,request.body||{});history.addAudit({actor:`api:${request.apiKey.name}`,action:'apiMpowerCommand',target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:JSON.parse(payload)});response.status(202).json({accepted:true,commandTopic:target.commandTopic,payload:JSON.parse(payload)});}catch(error){response.status(400).json({error:error.message,code:'COMMAND_FAILED'});}});
+  app.post('/api/v1/devices/:username/:action',requireApiScope('control'),async(request,response)=>{try{if(!['restart','sync'].includes(request.params.action))return response.status(404).json({error:'API işlemi bulunamadı.',code:'NOT_FOUND'});const target=[...onlineClients.values()].find(x=>x.username.toLowerCase()===request.params.username.toLowerCase());if(!target)return response.status(409).json({error:'Cihaz çevrimdışı.',code:'DEVICE_OFFLINE'});const type=getDeviceType(target.deviceType);if(request.params.action==='restart'&&!type.supportsRestart)return response.status(400).json({error:`${type.label} yeniden başlatmayı desteklemiyor.`,code:'UNSUPPORTED'});if(request.params.action==='sync'&&!type.supportsSync)return response.status(400).json({error:`${type.label} sync komutunu desteklemiyor.`,code:'UNSUPPORTED'});const payload={type:'netrelay',command:request.params.action,commandId:createCommandId(),targetUsername:target.username};await publishMqttJson(target.commandTopic,payload);history.addAudit({actor:`api:${request.apiKey.name}`,action:`apiDevice${request.params.action}`,target:target.username,remoteIp:security.normalizeIp(request.socket?.remoteAddress)});response.status(202).json({accepted:true,commandTopic:target.commandTopic,payload});}catch(error){response.status(400).json({error:error.message,code:'COMMAND_FAILED'});}});
   app.get('/log-rotation',requireAdminApi,(request,response)=>response.render('log-rotation',{currentUser:request.authUser}));
   app.get('/api/log-rotation',requireAdminApi,(request,response)=>response.json(logRotation.getSettings()));
   app.put('/api/log-rotation',requireAdminApi,express.json(),(request,response)=>{try{const settings=logRotation.saveSettings(request.body||{});history.addAudit({actor:request.authUser.username,action:'logRotationSettingsSave',remoteIp:security.normalizeIp(request.socket?.remoteAddress),details:settings});response.json({message:'Log rotasyonu ayarları kaydedildi.',settings});}catch(error){response.status(400).json({error:error.message});}});
@@ -731,9 +779,12 @@ async function startServer() {
           if (new Set(targets.map((target) => target.username)).size !== targets.length) throw new Error('Aynı MQTT kullanıcısına ait birden fazla bağlantı birlikte seçilemez.');
           for (const target of targets) {
             const created = firmwareManager.createJob(request.firmwareId, target);
-            const command = JSON.stringify({ type: 'netrelay', command: 'firmware_update', commandId: createCommandId(), targetUsername: target.username,
-              jobId: created.job.id, version: created.firmware.version, hardware: created.firmware.hardware,
-              url: `${FIRMWARE_PUBLIC_BASE_URL || socket.publicBaseUrl}/firmware/download/${created.token}`, size: created.firmware.size, sha256: created.firmware.sha256 });
+            const downloadUrl = `${FIRMWARE_PUBLIC_BASE_URL || socket.publicBaseUrl}/firmware/download/${created.token}`;
+            const command = target.deviceType === 'netrelay_mp'
+              ? JSON.stringify({ action: 'update', url: downloadUrl })
+              : JSON.stringify({ type: 'netrelay', command: 'firmware_update', commandId: createCommandId(), targetUsername: target.username,
+                jobId: created.job.id, version: created.firmware.version, hardware: created.firmware.hardware,
+                url: downloadUrl, size: created.firmware.size, sha256: created.firmware.sha256 });
             broker.publish({ cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(command), qos: 1, retain: false, dup: false }, (error) => {
               if (error) firmwareManager.failJob(created.job.id, error.message);
               else addLog('FIRMWARE', `${target.username} için ${created.firmware.version} OTA komutu gönderildi.`);
@@ -843,10 +894,9 @@ async function startServer() {
         if (request.type === 'restartDevice') {
           const target = onlineClients.get(String(request.targetClientId || ''));
           if (!target) throw new Error('Seçilen cihaz artık çevrimiçi değil.');
+          if (!getDeviceType(target.deviceType).supportsRestart) throw new Error(`${getDeviceType(target.deviceType).label} yeniden başlatmayı desteklemiyor.`);
           const payload = JSON.stringify({ type: 'netrelay', command: 'restart', commandId: createCommandId(), targetUsername: target.username });
-          await new Promise((resolve, reject) => broker.publish({
-            cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload), qos: 1, retain: false, dup: false
-          }, (error) => error ? reject(error) : resolve()));
+          await publishMqttJson(target.commandTopic, payload);
           addLog('KOMUT', `${target.username} cihazına yeniden başlatma komutu gönderildi.`);
           socket.send(JSON.stringify({ type: 'restartDeviceSuccess', message: 'Yeniden başlatma komutu gönderildi.' }));
           return;
@@ -854,10 +904,9 @@ async function startServer() {
         if (request.type === 'syncDevice') {
           const target = onlineClients.get(String(request.targetClientId || ''));
           if (!target) throw new Error('Seçilen cihaz artık çevrimiçi değil.');
+          if (!getDeviceType(target.deviceType).supportsSync) throw new Error(`${getDeviceType(target.deviceType).label} sync komutunu desteklemiyor.`);
           const payload = JSON.stringify({ type: 'netrelay', command: 'sync', commandId: createCommandId(), targetUsername: target.username });
-          await new Promise((resolve, reject) => broker.publish({
-            cmd: 'publish', topic: target.commandTopic, payload: Buffer.from(payload), qos: 1, retain: false, dup: false
-          }, (error) => error ? reject(error) : resolve()));
+          await publishMqttJson(target.commandTopic, payload);
           addLog('KOMUT', `${target.username} cihazından güncel durum istendi.`);
           socket.send(JSON.stringify({ type: 'syncDeviceSuccess', message: 'Durum yenileme isteği gönderildi.' }));
           return;
@@ -869,31 +918,39 @@ async function startServer() {
         if (!target) throw new Error('Seçilen kullanıcı artık çevrimiçi değil.');
 
         const payload = JSON.parse(request.payload);
-        const validRelays =
-          Array.isArray(payload.relays) &&
-          payload.relays.length > 0 &&
-          payload.relays.every((relay) => Number.isInteger(relay) && relay >= 1 && relay <= 4);
-        const validPosition = payload.position === 0 || payload.position === 1;
-        const delay = payload.delay === undefined ? 0 : payload.delay;
-        const validDelay = Number.isInteger(delay) && delay >= 0 && delay <= 4294967;
+        let jsonPayload;
 
-        if (
-          payload.type !== 'netrelay' ||
-          payload.command !== 'set' ||
-          payload.targetUsername !== target.username ||
-          !validRelays ||
-          !validPosition ||
-          !validDelay
-        ) {
-          throw new Error('NetRelay JSON formatı geçersiz.');
+        if (target.deviceType === 'netrelay_mp') {
+          const validated = validateMpowerCommand(payload);
+          if (!validated.ok) throw new Error(validated.error);
+          jsonPayload = JSON.stringify(validated.command);
+        } else {
+          const validRelays =
+            Array.isArray(payload.relays) &&
+            payload.relays.length > 0 &&
+            payload.relays.every((relay) => Number.isInteger(relay) && relay >= 1 && relay <= 4);
+          const validPosition = payload.position === 0 || payload.position === 1;
+          const delay = payload.delay === undefined ? 0 : payload.delay;
+          const validDelay = Number.isInteger(delay) && delay >= 0 && delay <= 4294967;
+
+          if (
+            payload.type !== 'netrelay' ||
+            payload.command !== 'set' ||
+            payload.targetUsername !== target.username ||
+            !validRelays ||
+            !validPosition ||
+            !validDelay
+          ) {
+            throw new Error('NetRelay JSON formatı geçersiz.');
+          }
+
+          payload.relays = [...new Set(payload.relays)];
+          payload.delay = delay;
+          payload.commandId = createCommandId();
+          jsonPayload = JSON.stringify(payload);
         }
 
-        payload.relays = [...new Set(payload.relays)];
-        payload.delay = delay;
-        payload.commandId = createCommandId();
-        const jsonPayload = JSON.stringify(payload);
         const topic = target.commandTopic;
-
         broker.publish(
           {
             cmd: 'publish',
@@ -921,29 +978,38 @@ async function startServer() {
 
   broker.on('clientReady', (client) => {
     const usernameWasOnline = [...onlineClients.values()].some((item) => item.username === client.authenticatedUsername);
+    const deviceType = resolveDeviceType(client.authenticatedUsername);
+    const typeMeta = getDeviceType(deviceType);
     onlineClients.set(client.id, {
       clientId: client.id,
       username: client.authenticatedUsername,
-      commandTopic: `netrelay/${client.authenticatedUsername}/command`,
+      deviceType,
+      deviceTypeLabel: typeMeta.label,
+      commandTopic: commandTopicFor(deviceType, client.authenticatedUsername),
       remoteIp: security.normalizeIp(client.conn?.remoteAddress),
       status: 'UP',
       deviceUptimeMs: 0,
       hostname: '',
       ipAddress: '',
+      outlets: [],
+      custom: null,
+      portCount: typeMeta.defaultPortCount,
       lastSeenAt: new Date().toLocaleString('tr-TR'),
       connectedAt: new Date().toLocaleString('tr-TR'),
       connectedAtMs: Date.now(), lastStatusAt: null
     });
     addLog(
       'BAĞLANDI',
-      `Kullanıcı: ${client.authenticatedUsername} | Client ID: ${client.id}`
+      `Kullanıcı: ${client.authenticatedUsername} | Tip: ${typeMeta.label} | Client ID: ${client.id}`
     );
     writeDailyStatusLog('DEVICE_UP', {
-      username: client.authenticatedUsername, clientId: client.id,
+      username: client.authenticatedUsername, clientId: client.id, deviceType,
       remoteIp: security.normalizeIp(client.conn?.remoteAddress)
     });
-    history.addConnection('connected', client, { remoteIp: security.normalizeIp(client.conn?.remoteAddress) });
-    publishHomeAssistantDiscovery(client.authenticatedUsername).catch(error=>addLog('HATA',`Home Assistant Discovery: ${error.message}`));
+    history.addConnection('connected', client, { remoteIp: security.normalizeIp(client.conn?.remoteAddress), deviceType });
+    if (deviceType === 'netrelay') {
+      publishHomeAssistantDiscovery(client.authenticatedUsername).catch(error=>addLog('HATA',`Home Assistant Discovery: ${error.message}`));
+    }
     deliverQueuedCommands(onlineClients.get(client.id)).catch(error=>addLog('HATA',`Kuyruk teslimi: ${error.message}`));
     if (!usernameWasOnline) emailNotifications.notifyDevice(client.authenticatedUsername, true, {
       clientId: client.id, remoteIp: security.normalizeIp(client.conn?.remoteAddress)
@@ -973,7 +1039,11 @@ async function startServer() {
     if (!client) return;
 
     const message = packet.payload.toString();
+    const currentClient = onlineClients.get(client.id);
     const netRelayEvent = parseNetRelayEvent(message, client, packet.topic);
+    const mpowerEvent = currentClient?.deviceType === 'netrelay_mp'
+      ? parseMpowerEvent(message, client, packet.topic, currentClient)
+      : null;
     try {
       const rawEvent = JSON.parse(message);
       if (rawEvent.type === 'netrelay_firmware_status' && firmwareManager.updateJob(rawEvent)) {
@@ -981,14 +1051,48 @@ async function startServer() {
       }
     } catch {}
 
-    if (netRelayEvent?.type === 'netrelay_device_status') {
-      const currentClient = onlineClients.get(client.id);
-      const changedFields = deviceStateChanges(currentClient, netRelayEvent);
-      if (changedFields.length) history.addEvent({ ...netRelayEvent, changedFields }, message);
+    if (mpowerEvent?.type === 'mpower_device_status' || mpowerEvent?.type === 'mpower_outlet_status' || mpowerEvent?.type === 'mpower_custom') {
       if (currentClient) {
+        const changedFields = !currentClient.relays ? ['initial'] : [
+          ...(JSON.stringify(currentClient.relays) !== JSON.stringify(mpowerEvent.relays) ? ['relays'] : []),
+          ...(JSON.stringify(currentClient.custom ?? null) !== JSON.stringify(mpowerEvent.custom ?? null) ? ['custom'] : []),
+          ...(String(currentClient.hostname || '') !== String(mpowerEvent.hostname || '') ? ['hostname'] : []),
+          ...(String(currentClient.ipAddress || '') !== String(mpowerEvent.ipAddress || '') ? ['ipAddress'] : [])
+        ];
+        if (changedFields.length) history.addEvent({ ...mpowerEvent, changedFields }, message);
         if (currentClient.status === 'STALE') history.addConnection('recovered', currentClient, { reason: 'status_message_received' });
         onlineClients.set(client.id, {
           ...currentClient,
+          status: 'UP',
+          deviceUptimeMs: mpowerEvent.deviceUptimeMs || currentClient.deviceUptimeMs || 0,
+          voltage: mpowerEvent.voltage ?? currentClient.voltage,
+          temperature: mpowerEvent.temperature ?? currentClient.temperature,
+          hostname: mpowerEvent.hostname || currentClient.hostname,
+          ipAddress: mpowerEvent.ipAddress || currentClient.ipAddress,
+          outlets: mpowerEvent.outlets,
+          relays: mpowerEvent.relays,
+          custom: mpowerEvent.custom ?? currentClient.custom,
+          portCount: mpowerEvent.portCount || currentClient.portCount,
+          lastJson: message,
+          lastEventAt: mpowerEvent.serverReceivedAt,
+          lastSeenAt: new Date().toLocaleString('tr-TR'),
+          lastStatusAt: Date.now()
+        });
+        broadcastState();
+      }
+      if (consoleLoggingEnabled) console.log(`[MPOWER] ${client.authenticatedUsername} | ${packet.topic} | ${mpowerEvent.type}`);
+      addLog('MESAJ', `Kullanıcı: ${client.authenticatedUsername} | Topic: ${packet.topic} | Mesaj: ${message}`);
+      return;
+    }
+
+    if (netRelayEvent?.type === 'netrelay_device_status') {
+      const existingClient = onlineClients.get(client.id);
+      const changedFields = deviceStateChanges(existingClient, netRelayEvent);
+      if (changedFields.length) history.addEvent({ ...netRelayEvent, changedFields }, message);
+      if (existingClient) {
+        if (existingClient.status === 'STALE') history.addConnection('recovered', existingClient, { reason: 'status_message_received' });
+        onlineClients.set(client.id, {
+          ...existingClient,
           status: 'UP',
           deviceUptimeMs: netRelayEvent.deviceUptimeMs,
           voltage: netRelayEvent.voltage,
@@ -1013,22 +1117,22 @@ async function startServer() {
 
     if (netRelayEvent?.type === 'netrelay_input_event') {
       history.addEvent(netRelayEvent, message);
-      const currentClient = onlineClients.get(client.id);
-      if (currentClient) {
-        const inputs = Array.from({ length: 4 }, (_, index) => currentClient.inputs?.[index] || { input: index + 1, name: `input${index + 1}`, io: null, voltage: 0 });
+      const existingClient = onlineClients.get(client.id);
+      if (existingClient) {
+        const inputs = Array.from({ length: 4 }, (_, index) => existingClient.inputs?.[index] || { input: index + 1, name: `input${index + 1}`, io: null, voltage: 0 });
         inputs[netRelayEvent.input - 1] = { input: netRelayEvent.input, name: netRelayEvent.inputName, io: netRelayEvent.io, voltage: netRelayEvent.voltage };
-        onlineClients.set(client.id, { ...currentClient, inputs, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
+        onlineClients.set(client.id, { ...existingClient, inputs, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
         broadcastState();
       }
       executeMatchingRules(netRelayEvent).catch((error) => addLog('HATA', `Kural motoru: ${error.message}`));
     }
     if (netRelayEvent?.type === 'netrelay_relay_event') {
       history.addEvent(netRelayEvent, message);
-      const currentClient = onlineClients.get(client.id);
-      if (currentClient) {
-        const relays = Array.isArray(currentClient.relays) ? [...currentClient.relays] : [null, null, null, null];
+      const existingClient = onlineClients.get(client.id);
+      if (existingClient) {
+        const relays = Array.isArray(existingClient.relays) ? [...existingClient.relays] : [null, null, null, null];
         relays[netRelayEvent.relay - 1] = netRelayEvent.position;
-        onlineClients.set(client.id, { ...currentClient, relays, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
+        onlineClients.set(client.id, { ...existingClient, relays, lastJson: message, lastEventAt: netRelayEvent.serverReceivedAt, lastSeenAt: new Date().toLocaleString('tr-TR') });
         broadcastState();
       }
     }

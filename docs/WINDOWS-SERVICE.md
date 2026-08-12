@@ -27,8 +27,20 @@ Start-Service NetRelayMQTT
 
 Güncellemeden önce servisi durdurun, dosyaları ve bağımlılıkları güncelleyin, sonra yeniden başlatın. `.env` ve `security.sqlite3` dosyalarını koruyun.
 
+Hazır betik (önerilen):
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\update.ps1
+```
+
+Betik GitHub'dan `git pull` alır, `npm ci --omit=dev` çalıştırır ve varsa `NetRelayMQTT` servisini / PM2 sürecini yeniden başlatır. `.env`, `users.json` ve `security.sqlite3` Git dışında olduğu için ayarlar değişmez. Yerel kod değişikliği varsa güvenlik için güncellemeyi iptal eder.
+
+Elle:
+
 ```powershell
 Stop-Service NetRelayMQTT
+git pull
 npm ci --omit=dev
 Start-Service NetRelayMQTT
 ```
