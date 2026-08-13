@@ -22,6 +22,40 @@ test('cihaz tipleri listelenir ve topic üretir', () => {
   assert.throws(() => normalizeDeviceType('unknown'));
 });
 
+test('NetRelay baştaki / temizlenir; boşluklu topic reddedilir; fromServer legacy kabul edilir', () => {
+  const { normalizeMqttTopic } = require('../device-types');
+  assert.equal(normalizeMqttTopic('/netrelay/atakoy_sube'), 'netrelay/atakoy_sube');
+  assert.equal(normalizeMqttTopic('netrelay/ atakoy_sube/command'), '');
+  assert.equal(normalizeMqttTopic('netrelay/atakoy_sube/events'), 'netrelay/atakoy_sube/events');
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', '/netrelay/atakoy_sube'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/atakoy_sube/command'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/ atakoy_sube/command'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/ atakoy_sube/events'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'fromServer'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'atakoy_sube'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/baska/command'), false);
+});
+
+test('NetRelayMP mpower topicleri bozulmaz; boşluklu ve legacy topicler reddedilir', () => {
+  const { parseMpowerTopic } = require('../device-types');
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/mltek/state'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/mltek/custom'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/mltek/24a43cd750b5/cmd'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/mltek/24a43cd750b5/state'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/mltek/24a43cd750b5/outlet/1/json'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', '/mpower/mltek/state'), true);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/ mltek/state'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'fromServer'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mltek'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'netrelay/mltek/events'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'netrelay/mltek/command'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay_mp', 'mltek', 'mpower/baska/state'), false);
+  assert.deepEqual(parseMpowerTopic('mpower/mltek/24a43cd750b5/state', 'mltek'), { kind: 'other', rest: '24a43cd750b5/state' });
+  assert.deepEqual(parseMpowerTopic('mpower/mltek/state', 'mltek'), { kind: 'state' });
+  assert.deepEqual(parseMpowerTopic('/mpower/mltek/custom', 'mltek'), { kind: 'custom' });
+  assert.equal(parseMpowerTopic('mpower/ mltek/outlet/2/json', 'mltek'), null);
+});
+
 test('mpower state telemetrisini ayrıştırır', () => {
   const event = parseMpowerEvent(JSON.stringify({
     output: [1, 0, 1],

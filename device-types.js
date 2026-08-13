@@ -56,16 +56,34 @@ function commandTopicFor(deviceType, username, clientId) {
   return `${topicPrefix(type.id, username, clientId)}/${type.commandSuffix}`;
 }
 
+/** Baştaki / işaretini temizler. Boşluk içeren topic'ler geçersizdir. */
+function normalizeMqttTopic(topic) {
+  const value = String(topic || '').trim();
+  if (!value || /\s/.test(value)) return '';
+  return value.replace(/^\/+/, '');
+}
+
 function isDeviceTopicAllowed(deviceType, username, topic) {
-  const prefix = topicPrefix(deviceType, username);
-  return topic === prefix || topic.startsWith(`${prefix}/`);
+  const normalizedUser = String(username || '').trim();
+  if (!normalizedUser || /\s/.test(String(topic || '').trim())) return false;
+  const normalizedTopic = normalizeMqttTopic(topic);
+  if (!normalizedTopic) return false;
+  const type = getDeviceType(deviceType);
+  const prefix = topicPrefix(type.id, normalizedUser);
+  if (normalizedTopic === prefix || normalizedTopic.startsWith(`${prefix}/`)) return true;
+  // Yalnızca klasik NetRelay arayüzü: Başlık=<kullanıcı>, Sub Topic=fromServer
+  // NetRelayMP (mpower/...) bu legacy topic'leri kullanmaz.
+  if (type.id === 'netrelay' && (normalizedTopic === 'fromServer' || normalizedTopic === normalizedUser)) return true;
+  return false;
 }
 
 function parseMpowerTopic(topic, username) {
+  if (/\s/.test(String(topic || '').trim())) return null;
   const root = topicPrefix('netrelay_mp', username);
+  const normalizedTopic = normalizeMqttTopic(topic);
   const prefix = `${root}/`;
-  if (!topic.startsWith(prefix) && topic !== root) return null;
-  const rest = topic.slice(prefix.length);
+  if (!normalizedTopic || (!normalizedTopic.startsWith(prefix) && normalizedTopic !== root)) return null;
+  const rest = normalizedTopic.slice(prefix.length);
   if (rest === 'state') return { kind: 'state' };
   if (rest === 'custom') return { kind: 'custom' };
   if (rest === 'cmd') return { kind: 'cmd' };
@@ -82,6 +100,7 @@ module.exports = {
   listDeviceTypes,
   topicPrefix,
   commandTopicFor,
+  normalizeMqttTopic,
   isDeviceTopicAllowed,
   parseMpowerTopic,
   mpowerDeviceId

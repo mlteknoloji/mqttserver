@@ -31,6 +31,7 @@ const {
   getDeviceType,
   listDeviceTypes,
   commandTopicFor,
+  normalizeMqttTopic,
   isDeviceTopicAllowed
 } = require('./device-types');
 const { stateChanges } = require('./state-delta');
@@ -357,13 +358,23 @@ async function startServer() {
         const deviceType = username ? resolveClientDeviceType(username, client.id) : null;
         const typeMeta = deviceType ? getDeviceType(deviceType) : null;
         const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
-        if (!username || !isDeviceTopicAllowed(deviceType, username, packet.topic)) {
+        const rawTopic = String(packet.topic || '').trim();
+        if (/\s/.test(rawTopic)) {
+          addLog(
+            'YETKİ',
+            `Yayın reddedildi | Sebep: boşluklu topic yasak | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${packet.topic} | Beklenen: ${expected}`
+          );
+          return callback(new Error('Boşluk içeren topic kullanılamaz.'));
+        }
+        const normalizedTopic = normalizeMqttTopic(packet.topic);
+        if (!username || !isDeviceTopicAllowed(deviceType, username, normalizedTopic)) {
           addLog(
             'YETKİ',
             `Yayın reddedildi | Sebep: topic yetkisi yok | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${packet.topic} | Beklenen: ${expected}`
           );
           return callback(new Error('Bu topic için yayın yetkiniz yok.'));
         }
+        if (normalizedTopic && normalizedTopic !== packet.topic) packet.topic = normalizedTopic;
       }
       callback(null);
     },
@@ -376,7 +387,16 @@ async function startServer() {
         const deviceType = username ? resolveClientDeviceType(username, client.id) : null;
         const typeMeta = deviceType ? getDeviceType(deviceType) : null;
         const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
-        const allowed = username && isDeviceTopicAllowed(deviceType, username, subscription.topic);
+        const rawTopic = String(subscription.topic || '').trim();
+        if (/\s/.test(rawTopic)) {
+          addLog(
+            'YETKİ',
+            `Abonelik reddedildi | Sebep: boşluklu topic yasak | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${subscription.topic} | Beklenen: ${expected}`
+          );
+          return callback(null, null);
+        }
+        const normalizedTopic = normalizeMqttTopic(subscription.topic);
+        const allowed = username && isDeviceTopicAllowed(deviceType, username, normalizedTopic);
         if (!allowed) {
           addLog(
             'YETKİ',
@@ -384,6 +404,7 @@ async function startServer() {
           );
           return callback(null, null);
         }
+        if (normalizedTopic && normalizedTopic !== subscription.topic) subscription.topic = normalizedTopic;
         return callback(null, subscription);
       }
       callback(null, subscription);

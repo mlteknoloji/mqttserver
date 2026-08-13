@@ -79,9 +79,12 @@ function parseMpowerEvent(message, client, topic, previous = {}, now = () => new
   const clientDeviceId = /^mp[0-9a-f]+$/i.test(String(client.id || '')) ? String(client.id).slice(2).toLowerCase() : String(client.id || '');
   const root = `mpower/${username}/${clientDeviceId}`;
   const prefix = `${root}/`;
-  if (!topic.startsWith(prefix) && topic !== root) return null;
+  const rawTopic = String(topic || '').trim();
+  if (!rawTopic || /\s/.test(rawTopic)) return null;
+  const normalizedTopic = rawTopic.replace(/^\/+/, '');
+  if (!normalizedTopic.startsWith(prefix) && normalizedTopic !== root) return null;
 
-  const rest = topic.slice(prefix.length);
+  const rest = normalizedTopic.slice(prefix.length);
   let payload;
   try { payload = JSON.parse(message); } catch { payload = message; }
 

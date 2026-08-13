@@ -26,7 +26,7 @@
       </a>
       <nav class="sidebar-nav" aria-label="Ana menü">
         <div class="nav-group" data-nav-group="monitoring"><button class="nav-group-title" type="button">İZLEME <span>⌄</span></button><div class="nav-group-items">
-          <a class="active" href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a><a href="/device-io"><span>⌁</span> Cihaz I/O İzleme</a>
+          <a class="active" href="#online-clients"><span>●</span> Çevrimiçi Cihazlar</a><a href="/device-io"><span>⌁</span> Cihaz I/O İzleme</a><% if (currentUser.role === 'admin' || currentUser.permissions.includes('logs')) { %><a href="/history"><span>◫</span> Olay Geçmişi</a><% } %>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="automation"><button class="nav-group-title" type="button">KONTROL VE OTOMASYON <span>⌄</span></button><div class="nav-group-items">
           <a href="#relay-command"><span>⇄</span> Röle Komutu</a><a href="/device-groups"><span>◉</span> Cihaz Grupları</a><a href="/scheduled-tasks"><span>◷</span> Zamanlanmış Görevler</a><a href="/automation-rules"><span>⚡</span> Kural Motoru</a><a href="/firmware-management"><span>⇧</span> Firmware Güncelleme</a>
@@ -35,7 +35,7 @@
           <a href="/email-notifications"><span>✉</span> E-posta Bildirimleri</a><a href="/mqtt-blacklist"><span>⊘</span> MQTT Blacklist</a>
         </div></div>
         <div class="nav-group collapsed" data-nav-group="system"><button class="nav-group-title" type="button">SİSTEM <span>⌄</span></button><div class="nav-group-items">
-          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/mqtt-users"><span>♟</span> MQTT Kullanıcıları</a><a href="/web-users"><span>♙</span> Panel Kullanıcıları</a><a href="/api-keys"><span>⌘</span> REST API</a><a href="/log-rotation"><span>↻</span> Log Rotasyonu</a><% } %>
+          <a href="#server-logs"><span>≡</span> Sunucu Logları</a><% if (currentUser.role === 'admin') { %><a href="/mqtt-users"><span>♟</span> MQTT Kullanıcıları</a><a href="/web-users"><span>♙</span> Panel Kullanıcıları</a><a href="/api-keys"><span>⌘</span> REST API</a><a href="/backup-restore"><span>⇩</span> Yedekleme</a><a href="/log-rotation"><span>↻</span> Log Rotasyonu</a><% } %>
         </div></div>
       </nav>
       <div class="sidebar-footer">
