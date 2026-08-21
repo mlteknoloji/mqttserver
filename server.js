@@ -32,7 +32,8 @@ const {
   listDeviceTypes,
   commandTopicFor,
   normalizeMqttTopic,
-  isDeviceTopicAllowed
+  isDeviceTopicAllowed,
+  isDevicePublishTopicAllowed
 } = require('./device-types');
 const { stateChanges } = require('./state-delta');
 const { deviceStateChanges } = require('./device-state-change');
@@ -357,7 +358,9 @@ async function startServer() {
         if(isHomeAssistant&&/^netrelay\/[^/]+\/command$/.test(packet.topic))return callback(null);
         const deviceType = username ? resolveClientDeviceType(username, client.id) : null;
         const typeMeta = deviceType ? getDeviceType(deviceType) : null;
-        const expected = username && typeMeta ? `${typeMeta.topicRoot}/${username}/#` : 'cihaz tipine özel topic';
+        const expected = username && typeMeta
+          ? (deviceType === 'netrelay' ? `${typeMeta.topicRoot}/${username}/# veya özel custom topic` : `${typeMeta.topicRoot}/${username}/#`)
+          : 'cihaz tipine özel topic';
         const rawTopic = String(packet.topic || '').trim();
         if (/\s/.test(rawTopic)) {
           addLog(
@@ -367,7 +370,7 @@ async function startServer() {
           return callback(new Error('Boşluk içeren topic kullanılamaz.'));
         }
         const normalizedTopic = normalizeMqttTopic(packet.topic);
-        if (!username || !isDeviceTopicAllowed(deviceType, username, normalizedTopic)) {
+        if (!username || !isDevicePublishTopicAllowed(deviceType, username, normalizedTopic)) {
           addLog(
             'YETKİ',
             `Yayın reddedildi | Sebep: topic yetkisi yok | Kullanıcı: ${username || client.id || 'bilinmiyor'} | Tip: ${typeMeta?.label || 'bilinmiyor'} | Topic: ${packet.topic} | Beklenen: ${expected}`

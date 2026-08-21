@@ -5,6 +5,7 @@ const {
   getDeviceType,
   commandTopicFor,
   isDeviceTopicAllowed,
+  isDevicePublishTopicAllowed,
   normalizeDeviceType
 } = require('../device-types');
 const { parseMpowerEvent, validateMpowerCommand } = require('../mpower-event');
@@ -34,6 +35,13 @@ test('NetRelay baştaki / temizlenir; boşluklu topic reddedilir; fromServer leg
   assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'fromServer'), true);
   assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'atakoy_sube'), true);
   assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/baska/command'), false);
+  assert.equal(isDeviceTopicAllowed('netrelay', 'atakoy_sube', 'otogar/1/gate/1/device/1000/action'), false);
+  assert.equal(isDevicePublishTopicAllowed('netrelay', 'atakoy_sube', 'otogar/1/gate/1/device/1000/action'), true);
+  assert.equal(isDevicePublishTopicAllowed('netrelay', 'atakoy_sube', 'homeassistant/switch/nr1000/out1/config'), true);
+  assert.equal(isDevicePublishTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/atakoy_sube/events'), true);
+  assert.equal(isDevicePublishTopicAllowed('netrelay', 'atakoy_sube', 'netrelay/baska/command'), false);
+  assert.equal(isDevicePublishTopicAllowed('netrelay', 'atakoy_sube', 'mpower/mltek/state'), false);
+  assert.equal(isDevicePublishTopicAllowed('netrelay_mp', 'mltek', 'otogar/1/gate/1/device/1000/action'), false);
 });
 
 test('NetRelayMP mpower topicleri bozulmaz; boşluklu ve legacy topicler reddedilir', () => {

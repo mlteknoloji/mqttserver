@@ -63,6 +63,14 @@ function normalizeMqttTopic(topic) {
   return value.replace(/^\/+/, '');
 }
 
+function isForeignDeviceNamespace(username, topic) {
+  const normalizedUser = String(username || '').trim().toLowerCase();
+  const normalizedTopic = normalizeMqttTopic(topic);
+  if (!normalizedUser || !normalizedTopic) return false;
+  const match = normalizedTopic.match(/^(netrelay|mpower)\/([^/]+)(?:\/|$)/);
+  return Boolean(match && match[2].toLowerCase() !== normalizedUser);
+}
+
 function isDeviceTopicAllowed(deviceType, username, topic) {
   const normalizedUser = String(username || '').trim();
   if (!normalizedUser || /\s/.test(String(topic || '').trim())) return false;
@@ -75,6 +83,16 @@ function isDeviceTopicAllowed(deviceType, username, topic) {
   // NetRelayMP (mpower/...) bu legacy topic'leri kullanmaz.
   if (type.id === 'netrelay' && (normalizedTopic === 'fromServer' || normalizedTopic === normalizedUser)) return true;
   return false;
+}
+
+/** NetRelay Custom Data / HA discovery gibi cihazın kendi namespace'i dışındaki yayınlar. */
+function isDevicePublishTopicAllowed(deviceType, username, topic) {
+  if (isDeviceTopicAllowed(deviceType, username, topic)) return true;
+  const normalizedUser = String(username || '').trim();
+  const normalizedTopic = normalizeMqttTopic(topic);
+  if (!normalizedUser || !normalizedTopic || normalizedTopic.startsWith('$SYS')) return false;
+  if (getDeviceType(deviceType).id !== 'netrelay') return false;
+  return !isForeignDeviceNamespace(normalizedUser, normalizedTopic);
 }
 
 function parseMpowerTopic(topic, username) {
@@ -102,6 +120,7 @@ module.exports = {
   commandTopicFor,
   normalizeMqttTopic,
   isDeviceTopicAllowed,
+  isDevicePublishTopicAllowed,
   parseMpowerTopic,
   mpowerDeviceId
 };
